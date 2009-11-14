@@ -1,0 +1,26 @@
+## -*-mode: Outline; fill-prefix: "   ";-*-
+
+* Interfaces
+
+** Dataflow->Superclasses
+
+_validate_link:		Determine if a linkage being attempted is leagl
+_localEos: 		Do any internal class processing for end of
+			stream.
+
+** Superclass->Dataflow
+
+_output:		Push records onwards (tests for output func)
+
+** Between objects
+
+input:			Push a record into a dataflow class
+eos:			Notify a dataflow class of end of stream
+
+** User->Dataflow class
+
+## Generally only on beginning of dataflow   
+input:			Push a record into a dataflow class
+eos:			Notify a dataflow class of end of stream
+
+link (static):		Link two dataflow classes together
