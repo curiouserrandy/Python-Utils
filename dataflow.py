@@ -161,21 +161,28 @@ class SplitDFN(DataflowNode):
         DataflowNode.link(self, downstreamNode, outputLink,
                           self._firstOpenOutput())
 
-class SinkDFN(DataflowNode):
-    """Accepts input and dumps it to a specified function."""
-    def __init__(self, sinkFunc=None, eosFunc=None):
+class FilterDFN(DataflowNode):
+    """Filters input through a specified function."""
+    def __init__(self, filterFunc=None, eosFunc=None):
         DataflowNode.__init__(self)
-        self.sinkFunc = sinkFunc
+        self.filterFunc = filterFunc
         self.eosFunc = eosFunc
 
     def _validate_link(self, linknum, input_p):
-        return input_p     	# Any input, no outputs
+        return linknum == 0     # One input, 0-1 outputs.
 
     def input(self, record, inputLink=0):
-        if self.sinkFunc: self.sinkFunc(record)
+        if self.filterFunc: self._output(self.filterFunc(record))
 
     def _localEos(self):
         if self.eosFunc: self.eosFunc()
+
+class SinkDFN(FilterDFN):
+    """Accepts input and dumps it to a specified function."""
+    # Implemented through FilterDFN with no outputs.
+    def _validate_link(self, linknum, input_p):
+        return input_p and linknum ==0      	# Any input, no outputs
+
 
 class RecordIntervalDFN(DataflowNode):
     """Only transmit a specified interval of records from input to output."""
