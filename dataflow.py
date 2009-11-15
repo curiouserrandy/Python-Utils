@@ -10,7 +10,8 @@ import operator
 
 ### XXX: Some logging in the base abstraction would be good.  For the 
 ### current implementation, central logging showing input and output 
-### along each link would be grand.
+### along each link would be grand.  I think this requires inputs to 
+### pass through the base class and call up, which is fine.  
 
 ### Naming conventions for internally/externally called functions and
 ### should/shouldn't be overridden: 
@@ -28,7 +29,11 @@ import operator
 ### XXX: Specify interface more completely (specifically to superclasses, and
 ### to external functions).  
 
-class DataflowNode:
+### XXX: Might want to think about operator overloading to link DFNs
+### (possibly mimic building a list; stream DFN container?  Any good 
+### syntactic sugar for splits?)
+
+class DataflowNode(object):
     """Base class for node in a dataflow network.  Takes an input record,
 does some type of transformation on it, and outputs some other record.  
 Default action is just to pass things through.
@@ -64,7 +69,12 @@ descendants."""
             [None,] * max(0,inputLink - len(self.eosSeen) + 1)
         self.eosSeen[inputLink] = False
 
-        
+    def _firstOpenOutput(self):
+        """Used by subclasses to do auto-linking of multiple outputs."""
+        for i in range(len(self.outputFunctions)):
+            if self.outputFunctions is None:
+                return i
+        return len(self.outputFunctions)
 
     def _validate_link(self, linknum, input_p):
         """Should be overridden if only some links are valid."""
@@ -147,6 +157,10 @@ class SplitDFN(DataflowNode):
     def input(self, record, inputLink=0):
         self._output(record)
 
+    def addOutput(self, downstreamNode, outputLink=0):
+        DataflowNode.link(self, downstreamNode, outputLink,
+                          self._firstOpenOutput())
+
 class SinkDFN(DataflowNode):
     """Accepts input and dumps it to a specified function."""
     def __init__(self, sinkFunc=None, eosFunc=None):
@@ -200,12 +214,14 @@ class ByteIntervalDFN(DataflowNode):
         strlen = len(record)
         startInStr = max(0, self.interval[0] - self.byteNum)
         endInStr = min(strlen, self.interval[1] - self.byteNum) if self.interval[1] != -1 else strlen
+        self.byteNum += len(record)
         if startInStr > strlen or endInStr <= startInStr:
             return
         self._output(record[startInStr:endInStr])
 
 class BatchRecordDFN(DataflowNode):
-    """Pass on records input->output in batches."""
+    """Pass on records input->output in batches.  A batchsize of 0 means to
+    wait until end of stream."""
     def __init__(self, batchsize):
         DataflowNode.__init__(self)
         self.batchsize = batchsize
@@ -220,7 +236,9 @@ class BatchRecordDFN(DataflowNode):
 
     def input(self, record, inputLink=0):
         self.recordlist += (record,)
-        if len(self.recordlist) >= self.batchsize: self._push()
+        if self.batchsize and len(self.recordlist) >= self.batchsize:
+            self._push()
 
     def _localEos(self):
-        if self.recordlist: self._push() 
+        if self.recordlist: self._push()
+
