@@ -3,6 +3,7 @@
 import pstats
 import operator
 import re
+import math
 
 # For reference, pstats code is in
 # /Library/Frameworks/Python.framework/Versions/2.6/lib/python2.6/pstats.py
@@ -48,6 +49,10 @@ class Cgstats(pstats.Stats):
         for f in filelist:
             filekeylist[f] = filter(lambda x: x[0] == f, keylist)
 
+        # Normalization for total time
+        max_total_time = max([self.stats[k][2] for k in keylist])
+        print "Max Total time: ", max_total_time
+
         # Output the graph
         outf = open(outfile, "w")
         print >> outf, "digraph callgraph {"
@@ -74,7 +79,14 @@ class Cgstats(pstats.Stats):
                 label = re.sub(r"\<built-in method (\w+)\>",
                                "<<\\1>>", label)
                 
-                print >> outf, indent, 'node_%d [label="%s"]' % (node_suffix, label)
+                # Figure out it's total/cumtime
+                (time) = self.stats[k][2]
+
+                print >> outf, indent, 
+                print >> outf, ('node_%d [label="%s\\n tt = %f", style=filled, fillcolor="#FF%02X%02X"];'
+                       % (node_suffix, label, time,
+                          int((1 - time/max_total_time) * 255),
+                          int((1 - time/max_total_time) * 255)))
                 node_name_dict[k] = node_suffix
                 node_suffix += 1
             if f!= "~":
