@@ -8,7 +8,7 @@ import math
 # For reference, pstats code is in
 # /Library/Frameworks/Python.framework/Versions/2.6/lib/python2.6/pstats.py
 
-class Cgstats(pstats.Stats):
+class Stats(pstats.Stats):
     """Decorads the pstats.Stats class with routines to provide call
     graph information."""
     def call_graph(self, *restrictions):
@@ -51,7 +51,6 @@ class Cgstats(pstats.Stats):
 
         # Normalization for total time
         max_total_time = max([self.stats[k][2] for k in keylist])
-        print "Max Total time: ", max_total_time
 
         # Output the graph
         outf = open(outfile, "w")
@@ -83,8 +82,8 @@ class Cgstats(pstats.Stats):
                 (time) = self.stats[k][2]
 
                 print >> outf, indent, 
-                print >> outf, ('node_%d [label="%s\\n tt = %f", style=filled, fillcolor="#FF%02X%02X"];'
-                       % (node_suffix, label, time,
+                print >> outf, ('node_%d [label="%s (:%d)\\n tt = %f", style=filled, fillcolor="#FF%02X%02X"];'
+                       % (node_suffix, label, k[1], time,
                           int((1 - time/max_total_time) * 255),
                           int((1 - time/max_total_time) * 255)))
                 node_name_dict[k] = node_suffix
