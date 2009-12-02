@@ -230,7 +230,7 @@ class RecordIntervalDFN(DataflowNode):
             and (self.interval[1] == -1 or self.recordNum < self.interval[1])):
             self._output(record)
         self.recordNum += 1
-        if self.recordNum >= self.interval[1]:
+        if self.interval[1] != -1 and self.recordNum >= self.interval[1]:
             self.eos()
             self._shutdown()
 
