@@ -260,7 +260,7 @@ class ByteIntervalDFN(DataflowNode):
         self.byteNum += len(record)
         if endInStr - startInStr > 0:
             self._output(record[startInStr:endInStr])
-        if self.byteNum > self.interval[1]:
+        if self.interval[1] != -1 and self.byteNum > self.interval[1]:
             self.eos()
             self._shutdown()
 
