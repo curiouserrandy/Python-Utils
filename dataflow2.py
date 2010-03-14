@@ -18,6 +18,10 @@ from sets import *
 ## TODO: Confirm singular constructor for CompositeDataflowNode works
 ## with another composite.  
 ## TODO: Resolve naming conflict: Use of "op" vs. "node"
+## TODO: Make sure that interface contract for drivers is clear; if
+## they never set needThread false, we're doomed.  Not clear that's
+## the right interface anyway; should probably just return False when
+## they're done.
 
 class DataflowNode(object):
     """Interface class to define type.  
