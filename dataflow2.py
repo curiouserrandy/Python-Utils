@@ -2,7 +2,6 @@
 import copy
 from sets import *
 
-## TODO: Deal with use of __eos and where eos is/should be stored.
 ## TODO: Don't forget to put in documentation for all of these
 ## TODO: Confirm what exception I should be inheriting from
 ## TODO: Split DataflowNode out into interface, simple, and composite
@@ -60,7 +59,7 @@ class SingleDataflowNode(DataflowNode):
     def signalEos(self, outputPort=0):
         assert self.__outputs[outputPort]
         myInputIndex = self.__outputs[outputPort].__inputs.index(self)
-        self.__outputs[outputPort].__eos(myInputIndex)
+        self.__outputs[outputPort].eos(myInputIndex)
         self.__outputs[outputPort] = None
 
     def ignoreInput(self, numRecords=-1, inputPort=0):
@@ -102,9 +101,6 @@ class SingleDataflowNode(DataflowNode):
         self.__outputs = [None,] * self.__numOutputs
         # Input port # on peer corresponding to our output port.
         self.__outputNodeInputs = [None,] * self.__numOutputs
-
-        # True if EOS called by that input operator
-        self.__eosSeenOnIn = [False,] * self.__numInputs
 
         # Non-zero if automatically processing an ignoreInput from
         # that output operators
