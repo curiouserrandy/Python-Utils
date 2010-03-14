@@ -2,6 +2,7 @@
 import copy
 from sets import *
 
+## TODO: Deal with use of __eos and where eos is/should be stored.
 ## TODO: Don't forget to put in documentation for all of these
 ## TODO: Confirm what exception I should be inheriting from
 ## TODO: Split DataflowNode out into interface, simple, and composite
@@ -12,6 +13,12 @@ from sets import *
 ## TODO: Create a print value for the single objects (and, heck, the composite).
 ## TODO: Make sure assertions aren't used for interface checking.
 ## TODO: Do reasonable naming conventions for the different methods.
+## TODO: Define operator overloading
+## TODO: Redefine linking arguments to allow multiple links to be made
+## between the operators.
+## TODO: Confirm singular constructor for CompositeDataflowNode works
+## with another composite.  
+## TODO: Resolve naming conflict: Use of "op" vs. "node"
 
 class DataflowNode(object):
     """Interface class to define type.  
@@ -84,7 +91,6 @@ class SingleDataflowNode(DataflowNode):
     def initialize(self): pass
     def input(self, inputPort, rec):
         raise NotImplemented("input method for SingleDataflowNode not implemented in derived class.")
-
         
     ### "Private" interface, for use of class methods and friends
     ### (CompositeDataflowNode, specifically)
