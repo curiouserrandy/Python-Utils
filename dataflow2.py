@@ -1,16 +1,35 @@
 
 import copy
+from sets import *
 
 ## TODO: Don't forget to put in documentation for all of these
 ## TODO: Confirm what exception I should be inheriting from
 ## TODO: Split DataflowNode out into interface, simple, and composite
+## TODO?: Setup a state marker on objects to note if they've been initialized, and for checking that.  
+## TODO: Documentation for stub routines.
+## TODO: Figure out how you feel about copy() as a public method and execute.
+## TODO: Top level explanatory comment
+## TODO: Create a print value for the single objects (and, heck, the composite).
+## TODO: Make sure assertions aren't used for interface checking.
+## TODO: Do reasonable naming conventions for the different methods.
 
 class DataflowNode(object):
+    """Interface class to define type.  
+In C++ this would be an abstract base class, in Java an interface."""
     # Exceptions to throw
-    def BadInputArguments(Exception):
-        pass
+    class BadInputArguments(Exception): pass
+    class NotImplemented(Exception): pass
+    class BadGraphConfig(Exception): pass
 
-    # Public methods
+    # Public interface
+    def inputPorts(self):
+        raise NotImplemented("Method inputPorts not overridden in inherited class.")
+    def outputPorts(self):
+        raise NotImplemented("Method outputPorts not overridden in inherited class.")
+
+
+class SingleDataflowNode(DataflowNode):
+    ### Public methods
     def inputPorts(self): return self.__numInputs
     def outputPorts(self): return self.__numOutputs
 
@@ -19,7 +38,7 @@ class DataflowNode(object):
         obj.__initConnections() # Nuke any links; they're incorrect now.
         return obj
 
-    # "Protected" interface (for use of derived classes
+    ### "Protected" interface (for use of derived classes
     def __init__(self, inputs=1, outputs=1, needThread=false):
         self.__numInputs = inputs
         self.__numOutputs = outputs
@@ -28,16 +47,55 @@ class DataflowNode(object):
         # called on the graph this operator is a part of.
         self.__needThreading = needThread
 
+        # Setup the basic connection tracking
         self.__initConnections(inputs, outputs)
         
-    # "Private" interface, for use of class methods and friends
-    # (CompositeDataflowNode, specifically)
+    def signalEos(self, outputPort=0):
+        assert self.__outputs[outputPort]
+        myInputIndex = self.__outputs[outputPort].__inputs.index(self)
+        self.__outputs[outputPort].__eos(myInputIndex)
+        self.__outputs[outputPort] = None
+
+    def ignoreInput(self, numRecords=-1, inputPort=0):
+        assert self.__inputs[inputPort]
+        myOutputIndex = self.__inputs[inputPort].__outputs.index(self)
+        if not self.__inputs[inputPort].seekOutput(numRecords, myOutputIndex):
+            assert len(self.__inputs[inputPort].__ignoringOutRecords) > myOutputIndex
+            self.__inputs[inputPort].__ignoringOutRecords[myOutputIndex] = numRecords
+        
+    def done(self):
+        for i in range(self.__numInputs):
+            self.ignoreInput(inputPort=i)
+        for i in range(self.__numOutputs):
+            self.signalEos(i)
+        self.__needThreading = False
+
+    def output(self, outputPort, rec):
+        assert self.__outputs[outputPort] # Skip for performance?
+        if self.__ignoringOutRecords[outputPort] != 0:
+            self.__ignoringOutRecords[outputPort]--
+        else:
+            self.__outputs[outputPort].input(self.__outputNodeInputs[outputPort], rec)
+
+    ### Stubs of functions that derived classes may choose to implement
+    def eos(self, inputPort): pass
+    def seekOutput(self, numRecords, outputPort): return False
+    def execute(self, numrecords): pass
+    def initialize(self): pass
+    def input(self, inputPort, rec):
+        raise NotImplemented("input method for SingleDataflowNode not implemented in derived class.")
+
+        
+    ### "Private" interface, for use of class methods and friends
+    ### (CompositeDataflowNode, specifically)
     def __initConnections(self):
         # Used for both init and copy
 
         # Will be filled in with the operators in question
         self.__inputs = [None,] * self.__numInputs
         self.__outputs = [None,] * self.__numOutputs
+        # Input port # on peer corresponding to our output port.
+        self.__outputNodeInputs = [None,] * self.__numOutputs
 
         # True if EOS called by that input operator
         self.__eosSeenOnIn = [False,] * self.__numInputs
@@ -47,15 +105,16 @@ class DataflowNode(object):
         self.__ignoringOutRecords = [0,] * self.__numOutputs
 
     @staticmethod
-    def __link(op1, op2):
-        self.__checkOpArg(op1, "First argument to DataflowNode.__link")
-        self.__checkOpArg(op2, "Second argument to DataflowNode.__link")
+    def __link(source, dest):
+        """Make a link between the actual operators passed (side effects
+        args).  Both SOURCE and DEST are tuples of the form (op, port)."""
+        (sourceop, sourceport) = source
+        (destop, destport) = dest
+        self.__checkOpArg(sourceop, "First argument to DataflowNode.__link")
+        self.__checkOpArg(destop, "Second argument to DataflowNode.__link")
             
-        # Simplistic single node link
-        op1 = op1.copy()
-        op2 = op2.copy()
-
         op1.__outputs[sourceport] = op2
+        op1.__outputNodeInputs[sourceport] = destport
         op2.__inputs[destport] = op1
         
 
@@ -66,6 +125,74 @@ def CompositeDataflowNode(DataflowNode):
     # CompositeDataflowNode() -- Null container
     # CompositeDataflowNode(op) -- Wrapper around single operator
     # CompositeDataflowNode(op, op) -- Links two ops
+
+    def inputPorts(self):
+        return len(self.__inputPorts)
+
+    def outputPorts(self):
+        return len(self.__outputPorts)
+
+    def run(self):
+        """Run the dataflow graph contained in this object."""
+        ### Check:
+        ###	* Graph self-contained
+        ###	* No cycles
+        ###	* Not disjoint (do I really care?)
+        ### Get list of thread support needed.
+        ### Call those items in the right order.
+        assert self.inputPorts() == 0
+        assert self.outputPorts() == 0
+
+        self.__checkForCycles()
+
+        # Arguably disjoint graphs should be ok; I could imagine cases
+        # in which you'd want a composite operator that did two things
+        # in parallel.  But the current construction mechanism doesn't
+        # allow for disjoint graphs, and so asserting for it seems a wise
+        # idea
+        self.__checkConnected()
+
+        # Initialize the graph
+        for n in self.__subOperators:
+            n.initialize()
+
+        # Get list of drivers
+        drivers = [n for n in self.__subOperators
+                   if n._SingleDataflowNode_needThreading]
+
+        # Drive them
+        if len(drivers) == 1:
+            drivers[0].execute()
+        else:
+            while drivers:
+                driverCopy = drivers[:]
+                for d in driverCopy:
+                    d.execute(1)
+                    if not d._SingleDataflowNode_needThreading:
+                        drivers.remove(d)
+
+    def nodeList(self):
+        return [op.copy() for op in self.__subOperators]
+
+    def internalLinks(self):
+        # I'll spare myself an "Ow" in anticipation of this routine
+        linklist = []
+        for (sourceNodeIdx, sourceNode) in enumerate(self.__subOperators):
+            for sourcePort in range(sourceNode.outputs()):
+                destNode = sourceNode._DataflowNode_outputs
+                if destNode is not None:
+                    destNodeIdx = self.__subOperators.index(destNode)
+                    destport = destNode._DataflowNode_inputs.index(sourceNode)
+                    linklist.append((sourceNodeIdx, sourcePort), (destNodeIdx, destPort))
+        return linklist
+
+    def externalInputs(self): return self.__inputPorts[:]
+    def externalOutputs(self): return self.__outputPorts[:]
+
+    def internalLink(self, outputport, inputport):
+        # For creating links within already existing graphs; i.e. merges
+        raise NotImplemented("CompositeDataflowNode.internalLink not yet implemented.")
+        
 
     def copy(self):
         obj = CompositeDataflowNode()
@@ -85,27 +212,6 @@ def CompositeDataflowNode(DataflowNode):
                 )
 
         return obj
-
-    def nodeList(self):
-        return [op.copy() for op in self.__subOperators]
-
-    def internalLinks(self):
-        # I'll spare myself an "Ow" in anticipation of this routine
-        linklist = []
-        for (sourceNodeIdx, sourceNode) in enumerate(self.__subOperators):
-            for sourcePort in range(sourceNode.outputs()):
-                destNode = sourceNode._DataflowNode_outputs
-                if destNode is not None:
-                    destNodeIdx = self.__subOperators.index(destNode)
-                    destport = destNode._DataflowNode_inputs.index(sourceNode)
-                    linklist.append((sourceNodeIdx, sourcePort), (destNodeIdx, destPort))
-        return linklist
-
-    def externalInputs(self):
-        return self.__inputPorts[:]
-
-    def externalOutputs(self):
-        return self.__outputPorts[:]
 
     # Protected (null; this is a final class not intended for inheritance).
 
@@ -185,6 +291,68 @@ def CompositeDataflowNode(DataflowNode):
             (self.__subOperators[sourcetuple[0]], sourcetuple[1]),
             (self.__subOperators[desttuple[0]], desttuple[1])
             )
+
+    def __checkForCycles(self):
+        # Get a list of links (no ports; you don't care)
+        links = [(s[0], d[0]) for (s, d) in self.internalLinks()]
+        lastLinksLength = 0
+        
+        # Repeatedly prune link list of references to nodes that have no
+        # inputs
+        while lastLinksLength != len(links):
+            lastLinksLength = len(links)
+            destNodes = set(zip(*links)[1])
+            links = [l for l in links if l[0] in destNodes or l[1] in destNodes]
+
+        if len(links) != 0:
+            # We have a loser!
+            # The right way to do this error message would be to output
+            # all the cycles detected.  But that would take a fair amount
+            # of work for a rare event, and one in which the user can probably
+            # figure out exactly what's going on just from the list of nodes.
+            # So I'll put off the more complicate error message until I need
+            # it.
+            nodeList = zip(*links)
+            nodeList = nodeList[0] + nodeList[1] # Flatten
+            nodeList = dict.fromkeys(nodeList).keys() # Uniquify
+            msg = "Cycle detected among DataflowNodes: ("
+            msg += ", ".join([self.__subOperators[n].repr() for n in nodeList])
+            msg += ")"
+            raise BadGraphConfig(msg)
+
+    def __checkConnected(self):
+        # Idea is to start from a random link, and explore in
+        # an undirected fashion from that link, marking nodes as
+        # visited.  If there are unvisited nodes when we're done, we're
+        # disjoint
+        nodes = set(range(len(self.__subOperators)))
+        if len(nodes) == 1: return
+
+        links = self.internalLinks()
+        nodesVisited = set(links.pop()) # Starts with two nodes
+        nodesVisitedLastSize = -1
+        while nodesVisitedLastSize != len(nodesVisited):
+            nodesVisitedLastSize = len(nodesVisited)
+            for l in links:
+                if l[0] in nodesVisited or l[1] in nodesVisited:
+                    links.remove(l)
+                    nodesVisited.add(l[0])
+                    nodesVisited.add(l[1])
+                    
+        if links:
+            # Graph is Disjoint
+            nodesNotVisited = nodes - nodesVisited
+
+            msg = "Disjoint sets of nodes found.  \n"
+            msg += ("First set: (" +
+                    ", ".join([self.__subOperators[o].repr()
+                               for o in nodesVisited])
+                    + ")\n")
+            msg += ("First set: (" +
+                    ", ".join([self.__subOperators[o].repr()
+                               for o in nodesNotVisited])
+                    + ")\n")
+            raise BadGraphConfig(msg)
 
     @staticmethod
     def __checkOpArg(op, argdesc):
