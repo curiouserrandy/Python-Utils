@@ -2,27 +2,6 @@
 import copy
 from sets import *
 
-## TODO: Don't forget to put in documentation for all of these
-## TODO: Confirm what exception I should be inheriting from
-## TODO: Split DataflowNode out into interface, simple, and composite
-## TODO?: Setup a state marker on objects to note if they've been initialized, and for checking that.  
-## TODO: Documentation for stub routines.
-## TODO: Figure out how you feel about copy() as a public method and execute.
-## TODO: Top level explanatory comment
-## TODO: Create a print value for the single objects (and, heck, the composite).
-## TODO: Make sure assertions aren't used for interface checking.
-## TODO: Do reasonable naming conventions for the different methods.
-## TODO: Define operator overloading
-## TODO: Redefine linking arguments to allow multiple links to be made
-## between the operators.
-## TODO: Confirm singular constructor for CompositeDataflowNode works
-## with another composite.  
-## TODO: Resolve naming conflict: Use of "op" vs. "node"
-## TODO: Make sure that interface contract for drivers is clear; if
-## they never set needThread false, we're doomed.  Not clear that's
-## the right interface anyway; should probably just return False when
-## they're done.
-
 class DataflowNode(object):
     """Interface class to define type.  
 In C++ this would be an abstract base class, in Java an interface."""
@@ -240,10 +219,15 @@ def CompositeDataflowNode(DataflowNode):
             raise BadInputArguments("Too many arguments to CompositeDataflowNode constructor: " + args.repr())
 
     def __initFromSingleton(self, op):
-        self.__subOperators = [op.copy()]
-        self.__inputPorts = [(0, i) for i in range(len(op.inputPorts()))]
-        self.__outputPorts = [(0, i) for i in range(len(op.outputPorts()))]
-
+        op = op.copy()
+        if isinstance(op, CompositeDataflowNode):
+            self.__subOperators = op.__subOperators
+            self.__inputPorts = op.__inputPorts
+            self.__outputPorts = op.__outputPorts
+        else:
+            self.__subOperators = [op.copy()]
+            self.__inputPorts = [(0, i) for i in range(len(op.inputPorts()))]
+            self.__outputPorts = [(0, i) for i in range(len(op.outputPorts()))]
 
     def __initFromDual(self, inputOp, outputOp):
         # Break out source and dest port info
