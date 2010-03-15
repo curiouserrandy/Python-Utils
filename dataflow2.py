@@ -77,6 +77,28 @@ In C++ this would be an abstract base class, in Java an interface."""
     def numOutputPorts(self):
         raise NotImplemented("Method numOutputPorts not overridden in inherited class.")
 
+    def __and__(self, node):
+        """Connect two dataflow nodes in series, with the outputs of the
+        first linked to the inputs of the second.
+        As appropriate to the "&"& operator, this is a copy operator; it will
+        not modify its arguments."""
+        if not isinstance(node, DataflowNode):
+            raise BadInputArguments("Argument to DataflowNode & operator (%s) is not a DataflowNode." % node)
+        return CompositeDataflowNode((self, node), eSerial)
+
+    def __or__(self, node):
+        """Connect two dataflow nodes in parallel, with all the inputs and
+        outputs of both exposed in the combined operator.  
+        As appropriate to the "|" operator, this is a copy operator; it will
+        not modify its arguments.
+        Note that this operator is *not* parallel to the shell pipe operation;
+        use "&" for that.  This is because if DataflowNodes are filters,
+        this corresponds to a logical or operation, and piping corresponds to a
+        logical and operation."""
+        if not isinstance(node, DataflowNode):
+            raise BadInputArguments("Argument to DataflowNode & operator (%s) is not a DataflowNode." % node)
+        return CompositeDataflowNode((self, node), eParallel)
+
 class SingleDataflowNode(DataflowNode):
     ### Public methods
     def numInputPorts(self): return self.__num_input_ports
@@ -364,6 +386,17 @@ class CompositeDataflowNode(DataflowNode):
     def inputPortDescrs(self): return self.__input_port_descrs[:]
     def outputPortDescrs(self): return self.__output_port_descrs[:]
 
+    # Operator overloading
+    def __iand__(self, node):
+        """Link the argument node into this one, attaching all outputs of
+        this node to all inputs of the argument node.
+        A copy is made of the argument node, but this node is modified."""
+        self.addNode(node, eSerial)
+    def __ior__(self, node):
+        """Link the argument node into this one, exposing all inputs
+        and outputs of both nodes in the resulting node.
+        A copy is made of the argument node, but this node is modified."""
+        self.addNode(node, eParallel)
 
     # Protected (null; this is a final class not intended for inheritance).
 
