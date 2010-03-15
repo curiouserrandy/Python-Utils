@@ -36,13 +36,9 @@ class SingleDataflowNode(DataflowNode):
         return obj
 
     ### "Protected" interface (for use of derived classes
-    def __init__(self, inputs=1, outputs=1, needThread=false):
+    def __init__(self, inputs=1, outputs=1):
         self.__numInputs = inputs
         self.__numOutputs = outputs
-
-        # True if we need to get thread support when execute is
-        # called on the graph this operator is a part of.
-        self.__needThreading = needThread
 
         # Setup the basic connection tracking
         self.__initConnections(inputs, outputs)
@@ -98,11 +94,22 @@ class SingleDataflowNode(DataflowNode):
         notification upstream; if a record is going to be dropped, it should be
         dropped as far upstream as possible."""
         return False
+
     def execute(self, numrecords):
-        """Override if needThread=True; this is the routine which will provide
-        the thread during execution.  This is usually for pure output
-        operators (e.g. read a line from a file and output it as a record)."""
-        pass
+        """Override if the operator requires threading support during
+        execution.  This is usually only for pure output operators
+        (e.g. read a line from a file and output it as a record); most
+        other operators are driven by output of records coming
+        from upstream operators. 
+
+        NUMRECORDS indicates the number of records you should generate (or
+        the number of units of some sort of equivalent processing you
+        should do) before returning.  If NUMRECORDS is -1, an arbitrary
+        amount of processing may be done.  False should be returned if this
+        routine does not need to be called again, True if there is more
+        processing for the operator to do."""
+        return False
+
     def initialize(self):
         """Override if the derived operator should perform some expensive
         initialization before processing.  Many copies of classes will be
@@ -176,20 +183,16 @@ def CompositeDataflowNode(DataflowNode):
         for n in self.__subOperators:
             n.initialize()
 
-        # Get list of drivers
-        drivers = [n for n in self.__subOperators
-                   if n._SingleDataflowNode_needThreading]
-
-        # Drive them
-        if len(drivers) == 1:
-            drivers[0].execute()
-        else:
-            while drivers:
-                driverCopy = drivers[:]
-                for d in driverCopy:
-                    d.execute(1)
-                    if not d._SingleDataflowNode_needThreading:
-                        drivers.remove(d)
+        # Call all execute() routines until they've all returned
+        # False.  Stop calling an operator's routine when it returns
+        # False.  If there's only one operator, just hand control to it.
+        drivers = self.__subOperators[:]
+        while drivers:
+            driverCopy = drivers[:]
+            nr = 1 if len(driverCopy) > 1 else -1
+            for d in driverCopy:
+                if not d.execute(nr):
+                    drivers.remove(d)
 
     def nodeList(self):
         return [op.copy() for op in self.__subOperators]
