@@ -175,6 +175,7 @@ from sets import *
 # * List of any obove objects: Suffix "s"
 # * Size of a list of any above objects: num_<obj>s
 
+# Identifiers exported by this module
 __all__ = (
     # Base classes
     "DataflowNode", "SingleDataflowNode", "CompositeDataflowNode",
@@ -756,4 +757,3 @@ class CompositeDataflowNode(DataflowNode):
                     + ")\n")
             raise BadGraphConfig(msg)
 
-    @staticmethod
