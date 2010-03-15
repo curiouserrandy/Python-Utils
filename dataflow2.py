@@ -2,11 +2,11 @@
 import copy
 from sets import *
 
-# Note: Changing the way that port numbers map when operators are combined
-# from being based around the nature of the combination of the operator
-# (splitting the space around the link between the operators) to being order
-# of operator dependent (If there are two operators A & B, and A has two
-# inputs and B has five, then the combined operator will have 7 inputs, the
+# Note: Changing the way that port numbers map when nodes are combined
+# from being based around the nature of the combination of the node
+# (splitting the space around the link between the nodes) to being order
+# of node dependent (If there are two nodes A & B, and A has two
+# inputs and B has five, then the combined node will have 7 inputs, the
 # first two of which are As and the last five of which are B's.  If
 # some of those inputs are used in linking A & B, they'll be elided
 # from that order).  
@@ -23,6 +23,42 @@ from sets import *
 # If a method is public but expected to be overridden by derived classes,
 # it is named as public.
 
+# Naming conventions
+
+# * Types (classes) are CamelCase with initial caps.
+# * Class methods are camelCase with initial lowercase.
+# * Enumerated constants are camelCase with initial lowercase "e"
+# * Variablse (including method arguments) will be all lower case with
+#   underscores separating words
+#
+# The following entries describe suggested variable (or method) names
+# for objects of different types.  If a routine requires multiple
+# variables of the same type, a distinguishing prefix should be
+# added. 
+# * The base classes of the module (DataflowNode, SingleDataflowNode,
+#   CompositeDataflowNode) will be spelled out, but all derived classes
+#   will have a DFN suffix for brevity.
+# * DataflowNode: "node".  CompositeDataflowNode: "cnode" (if the
+#   distinction from DataflowNode is important in that routine).
+#   SingleDataflowNode: "snode".  "n", "cn", and "sn" may be used for
+#   tight for loops where space is important.
+# * A node index (the index of a node within an array):
+#   "[cs]?node_idx", "[cs]?ni" as above.
+# * A port: "port".  "iport"/"oport" can be used when the input/output
+#   distinction is important and the focus of the routine is on the
+#   node.  "dport/sport" can be used when the destination/source
+#   distinction is important and the focus of the routine is on the
+#   link between nodes.
+# * Port descriptor (a two element tuple: (node_idx, port)):
+#   "[iods]?port_descr". 
+# * Fully qualified port (a two element tuple: (node, port)):
+#   "[iods]?nodeport". 
+# * Record (data flowing between nodes): "rec"
+# * Link (two element tuple: (sport_descr, dport_descr)): "link" or
+#   "l" in tight for loops.
+# * List of any obove objects: Suffix "s"
+# * Size of a list of any above objects: num_<obj>s
+
 # Exceptions used by module
 class BadInputArguments(Exception): pass
 class NotImplemented(Exception): pass
@@ -32,251 +68,256 @@ class DataflowNode(object):
     """Interface class to define type.  
 In C++ this would be an abstract base class, in Java an interface."""
     # Public interface
-    def inputPorts(self):
-        raise NotImplemented("Method inputPorts not overridden in inherited class.")
-    def outputPorts(self):
-        raise NotImplemented("Method outputPorts not overridden in inherited class.")
+    def numInputPorts(self):
+        raise NotImplemented("Method numInputPorts not overridden in inherited class.")
+    def numOutputPorts(self):
+        raise NotImplemented("Method numOutputPorts not overridden in inherited class.")
 
 class SingleDataflowNode(DataflowNode):
     ### Public methods
-    def inputPorts(self): return self.__numInputs
-    def outputPorts(self): return self.__numOutputs
+    def numInputPorts(self): return self.__num_input_ports
+    def numOutputPorts(self): return self.__num_output_ports
 
     def copy(self):
-        obj = copy.copy(self)
-        obj.__initConnections() # Nuke any links; they're incorrect now.
-        return obj
+        copy_node = copy.copy(self)
+        copy_node.__initConnections() # Nuke any links; they're incorrect now.
+        return copy_node
 
     ### "Protected" interface (for use of derived classes
-    def __init__(self, inputs=1, outputs=1):
-        self.__numInputs = inputs
-        self.__numOutputs = outputs
+    def __init__(self, num_input_ports=1, num_output_ports=1):
+        self.__num_input_ports = num_input_ports
+        self.__num_output_ports = num_output_ports
 
         # Setup the basic connection tracking
-        self.__initConnections(inputs, outputs)
+        self.__initConnections(num_input_ports, num_output_ports)
         
-    def _signalEos(self, outputPort=0):
-        assert self.__outputs[outputPort]
-        myInputIndex = self.__outputs[outputPort].__inputs.index(self)
-        self.__outputs[outputPort].eos_(myInputIndex)
-        self.__outputs[outputPort] = None
+    def _signalEos(self, output_port=0):
+        assert self.__output_nodes[output_port]
+        dest_self_iport = self.__output_nodes[output_port].__input_nodes.index(self)
+        self.__output_nodes[output_port].eos_(dest_self_iport)
+        self.__output_nodes[output_port] = None
 
-    def _ignoreInput(self, numRecords=-1, inputPort=0):
-        assert self.__inputs[inputPort]
-        myOutputIndex = self.__inputs[inputPort].__outputs.index(self)
-        if not self.__inputs[inputPort].seekOutput_(numRecords, myOutputIndex):
-            assert len(self.__inputs[inputPort].__ignoringOutRecords) > myOutputIndex
-            self.__inputs[inputPort].__ignoringOutRecords[myOutputIndex] = numRecords
+    def _ignoreInput(self, num_recs=-1, input_port=0):
+        assert self.__input_nodes[input_port]
+        src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
+        if not self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport):
+            assert len(self.__input_nodes[input_port].__ignoring_output_records) > src_self_oport
+            self.__input_nodes[input_port].__ignoring_output_records[src_self_oport] = num_recs
         
     def _done(self):
-        for i in range(self.__numInputs):
-            self.ignoreInput(inputPort=i)
-        for i in range(self.__numOutputs):
+        for i in range(self.__num_input_ports):
+            self.ignoreInput(input_port=i)
+        for i in range(self.__num_output_ports):
             self.signalEos(i)
-        self.__needThreading = False
 
-    def _output(self, outputPort, rec):
-        assert self.__outputs[outputPort] # Skip for performance?
-        if self.__ignoringOutRecords[outputPort] != 0:
-            self.__ignoringOutRecords[outputPort]--
+    def _output(self, output_port, rec):
+        assert self.__output_nodes[output_port] # Skip for performance?
+        if self.__ignoring_output_records[output_port] != 0:
+            self.__ignoring_output_records[output_port]--
         else:
-            self.__outputs[outputPort].input_(self.__outputNodeInputs[outputPort], rec)
+            self.__output_nodes[output_port].input_(self.__output_node_iports[output_port], rec)
 
     ### Stubs of functions that derived classes may choose to implement
-    def input_(self, inputPort, rec):
-        """Override to accept input from upstream operators."""
-        raise NotImplemented("input method for SingleDataflowNode not implemented in derived class.")
+    def input_(self, input_port, rec):
+        """Override to accept input from upstream nodes."""
+        raise NotImplemented("SingleDataflowNode.input_ method not implemented in derived class.")
 
-    def eos_(self, inputPort):
+    def eos_(self, input_port):
         """Override if notification of end of stream (no further input
         will be provided) is wanted; this function will be called when the
-        operator linked to the indicated port signals EOS."""
+        node linked to the indicated port signals EOS."""
         pass
 
-    def seekOutput_(self, numRecords, outputPort):
-        """Override if a request from a downstream operator to seek
-        forward NUMRECORDS in the stream can be handled in some
-        efficient fashion by the operator.  If this function returns
+    def seekOutput_(self, num_recs, output_port):
+        """Override if a request from a downstream node to seek
+        forward NUM_RECS in the stream can be handled in some
+        efficient fashion by the node.  If this function returns
         False, the infrastructure will manually skip the records; if it
-        returns True, the responsibility for skipping them is the
-        derived classes.
+        returns True, the responsibility for skipping them has been
+        accepted by the derived class.
 
-        Note that for pure transformation operators (one record out for each
+        Note that for pure transformation nodes (one record out for each
         record in, no maintained state) this should be overridden to pass the
         notification upstream; if a record is going to be dropped, it should be
         dropped as far upstream as possible."""
         return False
 
-    def execute_(self, numrecords):
-        """Override if the operator requires threading support during
-        execution.  This is usually only for pure output operators
+    def execute_(self, num_recs):
+        """Override if the node requires threading support during
+        execution.  This is usually only for pure output nodes
         (e.g. read a line from a file and output it as a record); most
-        other operators are driven by output of records coming
-        from upstream operators. 
+        other nodes are driven by output of records coming
+        from upstream nodes. 
 
-        NUMRECORDS indicates the number of records you should generate (or
+        NUM_RECS indicates the number of records you should generate (or
         the number of units of some sort of equivalent processing you
-        should do) before returning.  If NUMRECORDS is -1, an arbitrary
+        should do) before returning.  If NUM_RECS is -1, an arbitrary
         amount of processing may be done.  False should be returned if this
         routine does not need to be called again, True if there is more
-        processing for the operator to do."""
+        processing for the node to do."""
         return False
 
     def initialize_(self):
-        """Override if the derived operator should perform some expensive
+        """Override if the derived node should perform some expensive
         initialization before processing.  Many copies of classes will be
         constructed and destructed during graph creation, so (e.g.) opening
         of files should occur in this routine."""
+        pass
         
     ### "Private" interface, for use of class methods and friends
     ### (CompositeDataflowNode, specifically)
     def __initConnections(self):
         # Used for both init and copy
 
-        # Will be filled in with the operators in question
-        self.__inputs = [None,] * self.__numInputs
-        self.__outputs = [None,] * self.__numOutputs
+        # Will be filled in with the nodes in question
+        self.__input_nodes = [None,] * self.__num_input_ports
+        self.__output_nodes = [None,] * self.__num_output_ports
         # Input port # on peer corresponding to our output port.
-        self.__outputNodeInputs = [None,] * self.__numOutputs
+        self.__output_node_iports = [None,] * self.__num_output_ports
 
         # Non-zero if automatically processing an ignoreInput from
-        # that output operators
-        self.__ignoringOutRecords = [0,] * self.__numOutputs
+        # that output nodes
+        self.__ignoring_output_records = [0,] * self.__num_output_ports
 
     @staticmethod
-    def __link(source, dest):
-        """Make a link between the actual operators passed (side effects
-        args).  Both SOURCE and DEST are tuples of the form (op, port)."""
-        (sourceop, sourceport) = source
-        (destop, destport) = dest
-        self.__checkOpArg(sourceop, "First argument to DataflowNode.__link")
-        self.__checkOpArg(destop, "Second argument to DataflowNode.__link")
+    def __link(snodeport, dnodeport):
+        """Make a link between the actual nodes passed (side effects
+        args).  Both SNODEPORT and DNODEPORT are tuples of the form
+        (node, port)."""
+        (snode, sport) = snodeport
+        (dnode, dport) = dnodeport
+        self.__checkArgIsNode(snode, "First argument to DataflowNode.__link")
+        self.__checkArgIsNode(dnode, "Second argument to DataflowNode.__link")
             
-        op1.__outputs[sourceport] = op2
-        op1.__outputNodeInputs[sourceport] = destport
-        op2.__inputs[destport] = op1
+        snode.__output_nodes[sport] = dnode
+        snode.__output_node_iports[sport] = dport
+        dnode.__input_nodes[dport] = snode
         
 
-def CompositeDataflowNode(DataflowNode):
+class CompositeDataflowNode(DataflowNode):
     # Public interface
 
     # Constructor is considered public; may be called via:
     # CompositeDataflowNode() -- Null container
-    # CompositeDataflowNode(op) -- Wrapper around single operator
-    # CompositeDataflowNode(op, op) -- Links two ops
+    # CompositeDataflowNode(node) -- Wrapper around single node
+    # CompositeDataflowNode(nodes, links) -- Links two or more nodes
 
-    def inputPorts(self):
-        return len(self.__inputPorts)
+    def numInputPorts(self):
+        return len(self.__input_port_descrs)
 
-    def outputPorts(self):
-        return len(self.__outputPorts)
+    def numOutputPorts(self):
+        return len(self.__output_port_descrs)
 
     def run(self):
         """Run the dataflow graph contained in this object."""
         ### Check:
         ###	* Graph self-contained
         ###	* No cycles
-        ###	* Not disjoint (do I really care?)
-        ### Get list of thread support needed.
-        ### Call those items in the right order.
-        assert self.inputPorts() == 0
-        assert self.outputPorts() == 0
+        ###	* Not disjoint
+        ### Call all initialize routines
+        ### Drive graph by calling execute routines of nodes that need it.
 
-        self.__checkForCycles()
+        assert self.numInputPorts() == 0
+        assert self.numOutputPorts() == 0
+
+        self.__checkAcyclic()
 
         # Arguably disjoint graphs should be ok; I could imagine cases
-        # in which you'd want a composite operator that did two things
+        # in which you'd want a composite node that did two things
         # in parallel.  But the current construction mechanism doesn't
         # allow for disjoint graphs, and so asserting for it seems a wise
         # idea
         self.__checkConnected()
 
         # Initialize the graph
-        for n in self.__subOperators:
+        for n in self.__contained_nodes:
             n.initialize_()
 
         # Call all execute_() routines until they've all returned
-        # False.  Stop calling an operator's routine when it returns
-        # False.  If there's only one operator, just hand control to it.
-        drivers = self.__subOperators[:]
-        while drivers:
-            driverCopy = drivers[:]
-            nr = 1 if len(driverCopy) > 1 else -1
-            for d in driverCopy:
-                if not d.execute_(nr):
-                    drivers.remove(d)
+        # False.  Stop calling an node's routine when it returns
+        # False.  If there's only one node, just hand control to it.
+        nodes = self.__contained_nodes[:]
+        while nodes:
+            nodes1 = nodes[:]
+            num_recs = 1 if len(nodes1) > 1 else -1
+            for d in nodes1:
+                if not d.execute_(num_recs):
+                    nodes.remove(d)
 
-    def nodeList(self):
-        return [op.copy() for op in self.__subOperators]
+    def internalNodes(self):
+        return [node.copy() for node in self.__contained_nodes]
 
     def internalLinks(self):
-        """Returns the links between the simple operator that form
-        this composite operator.  Links are of the form
+        """Returns the links between the simple node that form
+        this composite node.  Links are of the form
         ((source_op_idx, source_port), (dest_op_idx, dest_port)).
-        The op_idx are indices into the list returned by nodeList()."""
-        linklist = []
-        for (sourceNodeIdx, sourceNode) in enumerate(self.__subOperators):
-            for sourcePort in range(sourceNode.outputs()):
-                destNode = sourceNode._DataflowNode_outputs
-                if destNode is not None:
-                    destNodeIdx = self.__subOperators.index(destNode)
-                    destport = destNode._DataflowNode_inputs.index(sourceNode)
-                    linklist.append((sourceNodeIdx, sourcePort), (destNodeIdx, destPort))
-        return linklist
+        The op_idx are indices into the list returned by internalNodes()."""
+        links = []
+        for (src_node_idx, src_node) in enumerate(self.__contained_nodes):
+            for src_port in range(src_node.num_output_ports()):
+                dest_node = src_node._DataflowNode_outputs
+                if dest_node is not None:
+                    dest_node_idx = self.__contained_nodes.index(dest_node)
+                    dest_port = dest_node._DataflowNode_inputs.index(src_node)
+                    links.append((src_node_idx, src_port), (dest_node_idx, dest_port))
+        return links
 
-    def externalInputs(self): return self.__inputPorts[:]
-    def externalOutputs(self): return self.__outputPorts[:]
+    def inputPortDescrs(self): return self.__input_port_descrs[:]
+    def outputPortDescrs(self): return self.__output_port_descrs[:]
 
-    def internalLink(self, outputport, inputport):
+    def makeInternalLink(self, output_port, input_port):
         # For creating links within already existing graphs; i.e. merges
-        raise NotImplemented("CompositeDataflowNode.internalLink not yet implemented.")
+        raise NotImplemented("CompositeDataflowNode.makeInternalLink not yet implemented.")
         
 
     def copy(self):
-        obj = CompositeDataflowNode()
+        copy_node = CompositeDataflowNode()
         # Safe to make shallow copy as entries are tuples, which are immutable
-        obj.__outputPorts = self.__outputPorts[:]
-        obj.__inputPorts = self.__inputPorts[:]
+        copy_node.__output_port_descrs = self.__output_port_descrs[:]
+        copy_node.__input_port_descrs = self.__input_port_descrs[:]
 
         # New copy of list
-        obj.__subOperators = [o.copy() for o in self.__subOperators[:]]
+        copy_node.__contained_nodes = [o.copy() for o in self.__contained_nodes[:]]
 
         # Re-create internal links
-        for l in self.internalLinks():
-            (sourceidx, sourceport, destidx, destport) = l
+         for l in self.internalLinks():
+            (src_node_idx, src_port, dest_node_idx, dest_port) = l
             DataflowNode._DataflowNode_link(
-                (obj.__subOperators[sourceidx], sourceport),
-                (obj.__subOperators[destidx], destport)
+                (copy_node.__contained_nodes[src_node_idx], src_port),
+                (copy_node.__contained_nodes[dest_node_idx], dest_port)
                 )
 
-        return obj
+        return copy_node
 
     # Protected (null; this is a final class not intended for inheritance).
 
     # Private
     def __init__(self, *args):
-        self.__subOperators = []
-        self.__inputPorts = []  # Will look like (opidx#, iport#)
-        self.__outputPorts = [] # Will look like (opidx#, oport#)
+        self.__contained_nodes = []
+
+	# These arrays map from the composite node port# to
+        # a port descriptor for an internal node
+        self.__input_port_descrs = []  
+        self.__output_port_descrs = [] 
 
         if len(args) == 0:
-            return # Composite op with no components
+            return # Composite node with no components
         elif len(args) == 1:
-            __checkOpArg(args[0], "First argument to composite node constructor");
+            self.__checkArgIsNode(args[0], "First argument to composite node constructor");
             self.__initFromSingleton(self, args[0])
         else:
-            self.__initFromList(args)
+            self.__initFromList(*args)
 
-    def __initFromSingleton(self, op):
-        op = op.copy()
-        if isinstance(op, CompositeDataflowNode):
-            self.__subOperators = op.__subOperators
-            self.__inputPorts = op.__inputPorts
-            self.__outputPorts = op.__outputPorts
+    def __initFromSingleton(self, node):
+        node = node.copy()
+        if isinstance(node, CompositeDataflowNode):
+            self.__contained_nodes = node.__contained_nodes
+            self.__input_port_descrs = node.__input_port_descrs
+            self.__output_port_descrs = node.__output_port_descrs
         else:
-            self.__subOperators = [op.copy()]
-            self.__inputPorts = [(0, i) for i in range(len(op.inputPorts()))]
-            self.__outputPorts = [(0, i) for i in range(len(op.outputPorts()))]
+            self.__contained_nodes = [node.copy()]
+            self.__input_port_descrs = [(0, i) for i in range(len(node.inputPorts()))]
+            self.__output_port_descrs = [(0, i) for i in range(len(node.numOutputPorts()))]
 
     eSerial = 1
     eParallel = 2
@@ -285,7 +326,7 @@ def CompositeDataflowNode(DataflowNode):
         inter-node links specified.  NODES should be a list of
         DataFlowNodes (either single or composite).  LINKS may be
         eSerial, eParallel, or a list of the form ((sourcenodeindex,
-        sourceport), (destnodeindex, destport)).  If eSerial, each
+        sourceport), (destnodeindex, dest_port)).  If eSerial, each
         pair of adjacent nodes in the node list must have matching
         inputs and outputs, which will be connected.  If eParallel, no
         connections are done--all input links for all nodes will be
@@ -295,7 +336,8 @@ def CompositeDataflowNode(DataflowNode):
         # Validate nodes
         for n in nodes:
             if not isinstance(node, DataflowNode):
-                raise BadInputArguments("Argument NODES to CompositeDataflowNode constructor contains invalid node %s" % node)
+                raise BadInputArguments(
+                    "Argument NODES to CompositeDataflowNode constructor contains invalid node %s" % node)
 
         # Validate link list
         if (links != self.eSerial and links != self.eParallel &&
@@ -305,15 +347,12 @@ def CompositeDataflowNode(DataflowNode):
             for l in links:
                 if not (0 <= l[0][0] < len(nodes)):
                     raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid source node index." % l)
-                if not 0 <= l[0][1] < nodes[l[0][0]].outputPorts():
+                if not 0 <= l[0][1] < nodes[l[0][0]].numOutputPorts():
                     raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid source port index." % l)
                 if not (0 <= l[1][0] < len(nodes)):
                     raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid destination node index." % l)
-                if not 0 <= l[1][1] < nodes[l[1][0]].inputPorts():
+                if not 0 <= l[1][1] < nodes[l[1][0]].numInputPorts():
                     raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid destination port index." % l)
-
-        # Turn everything composite
-        nodes = [CompositeDataflowNode(n) for n in nodes]
 
         # Verify eSerial requirement & create real link list from
         # symbolic args
@@ -322,49 +361,48 @@ def CompositeDataflowNode(DataflowNode):
         if links==eSerial:
             links = []
             for i in range(len(nodes)-1):
-                if nodes[i].outputPorts() != nodes[i+1].inputPorts():
+                if nodes[i].numOutputPorts() != nodes[i+1].numInputPorts():
                     raise BadInputArguments("""
 Serial CompositeDataflowNode creation requirement failure:
-%s op number of outputs (%d) is different from %s op number of inputs (%d)"""
+%s node number of outputs (%d) is different from %s node number of inputs (%d)"""
                                             % (nodes[i].repr(),
-                                               nodes[i].outputPorts(),
+                                               nodes[i].numOutputPorts(),
                                                nodes[i+1].repr(),
-                                               nodes[i+1].inputPorts()))
-                links += [((i, j), (i+1,j)) for j in range(nodes.[i].outputPorts())]
+                                               nodes[i+1].numInputPorts()))
+                links += [((i, j), (i+1,j)) for j in range(nodes.[i].numOutputPorts())]
+
+        # Turn everything composite
+        nodes = [CompositeDataflowNode(n) for n in nodes]
 
         # Copy everything in, recording offsets
-        offsets = reduce(lambda x, y: x + [x[-1]+y,],
+        port_descr_node_offsets = reduce(lambda x, y: x + [x[-1]+y,],
                          [len(n.__SubOperators) for n in nodes],
                          [0])
-        self.__subOperators = reduce(lambda x, y: x+y,
-                                     [n.__subOperators for n in nodes])
+        self.__contained_nodes = reduce(lambda x, y: x+y,
+                                     [n.__contained_nodes for n in nodes])
         
         # Create internal links from each of the arguments
         for (i,n) in enumerate(nodes):
-            node_offset = offsets[i]
+            node_offset = port_descr_node_offsets[i]
             links = n.internalLinks()
             SingleDataflowNode._SingleDataflowNode_link(
-                (self.__subOperators[node_offset+links[0][0]], links[0][1]),
-                (self.__subOperators[node_offset+links[1][0]], links[0][1])
+                (self.__contained_nodes[node_offset+links[0][0]], links[0][1]),
+                (self.__contained_nodes[node_offset+links[1][0]], links[0][1])
                 )
                 
         # Create lists of lists of mappings.  The outer list is
-        # indexed by composite operator index (from nodes), and the
- 	# inner list by composite operator port number, and the
-        # results of the mapping are simple operator indices within
-        # the newly created operator. 
-        #
-        # cnode: Composite node whose ports are being transformed
-        # cnode_i: Index of that composite node within nodes
-        # ni, pi: Node and port indices within that composite node
-        input_port_mappings = [
-            [(ni+offsets[cnode_i], pi)
-             for ni, pi in cnode.__inputPorts]
-            for cnode, cnode_i in enumerate(nodes)]
-        output_port_mappings = [
-            [(ni+offsets[cnode_i], pi)
-             for ni, pi in cnode.__outputPorts]
-            for cnode, cnode_i in enumerate(nodes)]
+        # indexed by composite node index (from nodes arg above), and the
+ 	# inner list by composite node port number, and the
+        # results of the mapping are simple node indices within
+        # the newly created node. 
+        iport_nested_descrs = [
+            [(ni+port_descr_node_offsets[cni], port)
+             for ni, port in cn.__input_port_descrs]
+            for cn, cni in enumerate(nodes)]
+        oport_nested_descrs = [
+            [(ni+port_descr_node_offsets[cni], port)
+             for ni, port in cn.__output_port_descrs]
+            for cn, cni in enumerate(nodes)]
 
         # Execute each link in the links list, modifying the input
         # and output port mappings as you go.
@@ -374,29 +412,29 @@ Serial CompositeDataflowNode creation requirement failure:
 
             # Removing the descriptor keeps the mappings accurate as
             # the internal links are made
-            sourceportdescr = output_port_mappings[sourcecnode].pop(sourcecport)
-            destportdescr = input_port_mappings[destcnode].pop(destcport)
+            sport_descr = oport_nested_descrs[sourcecnode].pop(sourcecport)
+            dport_descr = iport_nested_descrs[destcnode].pop(destcport)
             SingleDataflowNode._SingleDataflowNode_link(
-                (self.__subOperators[sourceportdescr[0]], sourceportdescr[1]),
-                (self.__subOperators(destportdescr[0]], destportdescr[1])
+                (self.__contained_nodes[sport_descr[0]], sport_descr[1]),
+                (self.__contained_nodes(dport_descr[0]], dport_descr[1])
                 )
 
-        # What's left in the mappings, flatted, should describe the remaining
+        # What's left in the mappings, flattened, should describe the remaining
         # open ports
-        self.__inputPorts = reduce(lambda x, y: x+y, input_port_mappings)
-        self.__outputPorts = reduce(lambda x, y: x+y, output_port_mappings)
+        self.__input_port_descrs = reduce(lambda x, y: x+y, iport_nested_descrs)
+        self.__output_port_descrs = reduce(lambda x, y: x+y, oport_nested_descrs)
 
-    def __checkForCycles(self):
-        # Get a list of links (no ports; you don't care)
+    def __checkAcyclic(self):
+        # Get a list of links (skipping ports; unneeded for this algorithm)
         links = [(s[0], d[0]) for (s, d) in self.internalLinks()]
-        lastLinksLength = 0
+        last_num_links = 0
         
         # Repeatedly prune link list of references to nodes that have no
         # inputs
-        while lastLinksLength != len(links):
-            lastLinksLength = len(links)
-            destNodes = set(zip(*links)[1])
-            links = [l for l in links if l[0] in destNodes or l[1] in destNodes]
+        while last_num_links != len(links):
+            last_num_links = len(links)
+            dest_nodes = set(zip(*links)[1])
+            links = [l for l in links if l[0] in dest_nodes or l[1] in dest_nodes]
 
         if len(links) != 0:
             # We have a loser!
@@ -406,11 +444,11 @@ Serial CompositeDataflowNode creation requirement failure:
             # figure out exactly what's going on just from the list of nodes.
             # So I'll put off the more complicate error message until I need
             # it.
-            nodeList = zip(*links)
-            nodeList = nodeList[0] + nodeList[1] # Flatten
-            nodeList = dict.fromkeys(nodeList).keys() # Uniquify
+            nodes = zip(*links)
+            nodes = nodes[0] + nodes[1] # Flatten
+            nodes = dict.fromkeys(nodes).keys() # Uniquify
             msg = "Cycle detected among DataflowNodes: ("
-            msg += ", ".join([self.__subOperators[n].repr() for n in nodeList])
+            msg += ", ".join([self.__contained_nodes[n].repr() for n in nodes])
             msg += ")"
             raise BadGraphConfig(msg)
 
@@ -419,39 +457,39 @@ Serial CompositeDataflowNode creation requirement failure:
         # an undirected fashion from that link, marking nodes as
         # visited.  If there are unvisited nodes when we're done, we're
         # disjoint
-        nodes = set(range(len(self.__subOperators)))
+        nodes = set(range(len(self.__contained_nodes)))
         if len(nodes) == 1: return
 
         links = self.internalLinks()
-        nodesVisited = set(links.pop()) # Starts with two nodes
-        nodesVisitedLastSize = -1
-        while nodesVisitedLastSize != len(nodesVisited):
-            nodesVisitedLastSize = len(nodesVisited)
+        visited_nodes = set(links.pop()) # Starts with two nodes
+        old_num_visited_nodes = -1
+        while old_num_visited_nodes != len(visited_nodes):
+            old_num_visited_nodes = len(visited_nodes)
             for l in links:
-                if l[0] in nodesVisited or l[1] in nodesVisited:
+                if l[0] in visited_nodes or l[1] in visited_nodes:
                     links.remove(l)
-                    nodesVisited.add(l[0])
-                    nodesVisited.add(l[1])
+                    visited_nodes.add(l[0])
+                    visited_nodes.add(l[1])
                     
         if links:
             # Graph is Disjoint
-            nodesNotVisited = nodes - nodesVisited
+            unvisited_nodes = nodes - visited_nodes
 
             msg = "Disjoint sets of nodes found.  \n"
             msg += ("First set: (" +
-                    ", ".join([self.__subOperators[o].repr()
-                               for o in nodesVisited])
+                    ", ".join([self.__contained_nodes[o].repr()
+                               for o in visited_nodes])
                     + ")\n")
             msg += ("First set: (" +
-                    ", ".join([self.__subOperators[o].repr()
-                               for o in nodesNotVisited])
+                    ", ".join([self.__contained_nodes[o].repr()
+                               for o in unvisited_nodes])
                     + ")\n")
             raise BadGraphConfig(msg)
 
     @staticmethod
-    def __checkOpArg(op, argdesc):
-        if (not isinstance(op, DataflowNode) and
-            (len(op) != 2 or not isinstance(op[0], DataflowNode)
-             or not isinstance(op[1], int))):
-            raise BadInputArguments("%s isn't DataflowNode or (DataflowNode,int) tuple" % argdesc)
+    def __checkArgIsNode(node, arg_descript):
+        if (not isinstance(node, DataflowNode) and
+            (len(node) != 2 or not isinstance(node[0], DataflowNode)
+             or not isinstance(node[1], int))):
+            raise BadInputArguments("%s isn't DataflowNode or (DataflowNode,int) tuple" % arg_descript)
 
