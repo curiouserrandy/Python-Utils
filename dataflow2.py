@@ -75,12 +75,39 @@ class SingleDataflowNode(DataflowNode):
             self.__outputs[outputPort].input(self.__outputNodeInputs[outputPort], rec)
 
     ### Stubs of functions that derived classes may choose to implement
-    def eos(self, inputPort): pass
-    def seekOutput(self, numRecords, outputPort): return False
-    def execute(self, numrecords): pass
-    def initialize(self): pass
     def input(self, inputPort, rec):
+        """Override to accept input from upstream operators."""
         raise NotImplemented("input method for SingleDataflowNode not implemented in derived class.")
+
+    def eos(self, inputPort):
+        """Override if notification of end of stream (no further input
+        will be provided) is wanted; this function will be called when the
+        operator linked to the indicated port signals EOS."""
+        pass
+
+    def seekOutput(self, numRecords, outputPort):
+        """Override if a request from a downstream operator to seek
+        forward NUMRECORDS in the stream can be handled in some
+        efficient fashion by the operator.  If this function returns
+        False, the infrastructure will manually skip the records; if it
+        returns True, the responsibility for skipping them is the
+        derived classes.
+
+        Note that for pure transformation operators (one record out for each
+        record in, no maintained state) this should be overridden to pass the
+        notification upstream; if a record is going to be dropped, it should be
+        dropped as far upstream as possible."""
+        return False
+    def execute(self, numrecords):
+        """Override if needThread=True; this is the routine which will provide
+        the thread during execution.  This is usually for pure output
+        operators (e.g. read a line from a file and output it as a record)."""
+        pass
+    def initialize(self):
+        """Override if the derived operator should perform some expensive
+        initialization before processing.  Many copies of classes will be
+        constructed and destructed during graph creation, so (e.g.) opening
+        of files should occur in this routine."""
         
     ### "Private" interface, for use of class methods and friends
     ### (CompositeDataflowNode, specifically)
