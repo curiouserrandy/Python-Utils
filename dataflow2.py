@@ -184,6 +184,12 @@ class BadGraphConfig(Exception): pass
 eSerial = 1
 eParallel = 2
 
+def checkArgIsNode(node, arg_descript):
+    """Confirm arg NODE is either a node, or a (node, port) tuple."""
+    if not isinstance(node, DataflowNode):
+        raise BadInputArguments("%s isn't DataflowNode" % arg_descript)
+
+
 class DataflowNode(object):
     """Interface class to define type.  
 In C++ this would be an abstract base class, in Java an interface."""
@@ -220,6 +226,8 @@ In C++ this would be an abstract base class, in Java an interface."""
         if not isinstance(node, DataflowNode):
             raise BadInputArguments("Argument to DataflowNode & operator (%s) is not a DataflowNode." % node)
         return CompositeDataflowNode((self, node), eParallel)
+
+
 
 class SingleDataflowNode(DataflowNode):
     ### Public methods
@@ -351,8 +359,8 @@ class SingleDataflowNode(DataflowNode):
         (node, port)."""
         (snode, sport) = snodeport
         (dnode, dport) = dnodeport
-        self.__checkArgIsNode(snode, "First argument to DataflowNode.__link")
-        self.__checkArgIsNode(dnode, "Second argument to DataflowNode.__link")
+        checkArgIsNode(snode, "First argument to DataflowNode.__link")
+        checkArgIsNode(dnode, "Second argument to DataflowNode.__link")
             
         snode.__output_nodes[sport] = dnode
         snode.__output_node_iports[sport] = dport
@@ -379,7 +387,7 @@ class CompositeDataflowNode(DataflowNode):
         if len(args) == 0:
             return # Composite node with no components
         elif len(args) == 1:
-            self.__checkArgIsNode(args[0], "First argument to composite node constructor");
+            checkArgIsNode(args[0], "First argument to composite node constructor");
             self.__initFromSingleton(self, args[0])
         else:
             self.__initFromList(*args)
@@ -713,14 +721,6 @@ class CompositeDataflowNode(DataflowNode):
                                for o in unvisited_nodes])
                     + ")\n")
             raise BadGraphConfig(msg)
-
-    @staticmethod
-    def __checkArgIsNode(node, arg_descript):
-        """Confirm arg NODE is either a node, or a (node, port) tuple."""
-        if (not isinstance(node, DataflowNode) and
-            (len(node) != 2 or not isinstance(node[0], DataflowNode)
-             or not isinstance(node[1], int))):
-            raise BadInputArguments("%s isn't DataflowNode or (DataflowNode,int) tuple" % arg_descript)
 
     @staticmethod
     def __checkLinksArg(links, nodes, method_name):
