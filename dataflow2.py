@@ -175,6 +175,15 @@ from sets import *
 # * List of any obove objects: Suffix "s"
 # * Size of a list of any above objects: num_<obj>s
 
+__all__ = (
+    # Base classes
+    "DataflowNode", "SingleDataflowNode", "CompositeDataflowNode",
+    # Derived classes
+    # Constants
+    "eSerial", "eParallel",
+    # Routines
+    )
+
 # Exceptions used by module
 class BadInputArguments(Exception): pass
 class NotImplemented(Exception): pass
@@ -184,10 +193,35 @@ class BadGraphConfig(Exception): pass
 eSerial = 1
 eParallel = 2
 
+# Module private routines used by class implementation
 def checkArgIsNode(node, arg_descript):
     """Confirm arg NODE is either a node, or a (node, port) tuple."""
     if not isinstance(node, DataflowNode):
         raise BadInputArguments("%s isn't DataflowNode" % arg_descript)
+
+def checkLinksArg(links, nodes, method_name):
+    """Confirm that the LINKS argument is valid in the context of the
+    node list.  This means that it's a link list with valid
+    values in the context of the node list, or it's eParallel, or it's
+    eSerial and adjacent nodes have matching number of input and output
+    ports."""
+    if not (links == eSerial or links == eParallel
+            or isinstance(links, list)):
+        raise BadInputArguments("Args LINKS (%s) to method %s isn't eSerial, eParallel or a list." % (list, method_name))
+    if isinstance(links, list):
+        for l in links:
+            if not (0 <= l[0][0] < range(len(nodes))
+                    and 0 <= l[1][0] < range(len(nodes))):
+                raise BadInputArguments("Link %s in arg LINKS to method %s contains a reference to an out of bounds node." % (l, method_name))
+            if not 0 <= l[0][1] < nodes[l[0][0]].numOutputPorts():
+                raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range output port (%d)." % (l, method_name, l[0][1]))
+            if not 0 <= l[1][1] < nodes[l[1][0]].numInputPorts():
+                raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range input port (%d)." % (l, method_name, l[1][1]))
+
+    if links == eSerial:
+        for i in range(len(nodes)-1):
+            if nodes[i].numOutputPorts() != nodes[i+1].numInputPorts():
+                raise BadInputArguments("Method %s called with eSerial and non-matching numbers of output (%d) and input (%d) ports on nodes %d, %d." % (method_name, nodes[i].numOutputPorts(), nodes[i+1].numInputPorts(), i, i+1))
 
 
 class DataflowNode(object):
@@ -402,7 +436,7 @@ class CompositeDataflowNode(DataflowNode):
         if not isinstance(node, DataflowNode):
             raise BadInputArguments("Arg NODE (%s) to method CompositeDataflowNode.addNode isn't a DataflowNode" %s node)
 
-        self.__checkLinksArg(links, (self,node), "CompositeDataflowNode.addNode")
+        checkLinksArg(links, (self,node), "CompositeDataflowNode.addNode")
 
         # Translate symbolic links argument to list
         if links == eParallel:
@@ -603,7 +637,7 @@ class CompositeDataflowNode(DataflowNode):
                     "Argument NODES to CompositeDataflowNode constructor contains invalid node %s" % node)
 
         # Validate link list
-        self.__checkLinksArg(links, nodes, "CompositeDataflowNode(nodes, links) constructor")
+        checkLinksArg(links, nodes, "CompositeDataflowNode(nodes, links) constructor")
 
         # Create a real link list from symbolic args
         if links==eParallel:
@@ -723,28 +757,3 @@ class CompositeDataflowNode(DataflowNode):
             raise BadGraphConfig(msg)
 
     @staticmethod
-    def __checkLinksArg(links, nodes, method_name):
-        """Confirm that the LINKS argument is valid in the context of the
-        node list.  This means that it's a link list with valid
-        values in the context of the node list, or it's eParallel, or it's
-        eSerial and adjacent nodes have matching number of input and output
-        ports."""
-        if not (links == eSerial or links == eParallel
-                or isinstance(links, list)):
-            raise BadInputArguments("Args LINKS (%s) to method %s isn't eSerial, eParallel or a list." % (list, method_name))
-        if isinstance(links, list):
-            for l in links:
-                if not (0 <= l[0][0] < range(len(nodes))
-                        and 0 <= l[1][0] < range(len(nodes))):
-                    raise BadInputArguments("Link %s in arg LINKS to method %s contains a reference to an out of bounds node." % (l, method_name))
-                if not 0 <= l[0][1] < nodes[l[0][0]].numOutputPorts():
-                    raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range output port (%d)." % (l, method_name, l[0][1]))
-                if not 0 <= l[1][1] < nodes[l[1][0]].numInputPorts():
-                    raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range input port (%d)." % (l, method_name, l[1][1]))
-
-        if links == eSerial:
-            for i in range(len(nodes)-1):
-                if nodes[i].numOutputPorts() != nodes[i+1].numInputPorts():
-                    raise BadInputArguments("Method %s called with eSerial and non-matching numbers of output (%d) and input (%d) ports on nodes %d, %d." % (method_name, nodes[i].numOutputPorts(), nodes[i+1].numInputPorts(), i, i+1))
-
-        
