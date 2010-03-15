@@ -28,7 +28,7 @@ from sets import *
 # * Types (classes) are CamelCase with initial caps.
 # * Class methods are camelCase with initial lowercase.
 # * Enumerated constants are camelCase with initial lowercase "e"
-# * Variablse (including method arguments) will be all lower case with
+# * Variables (including method arguments) will be all lower case with
 #   underscores separating words
 #
 # The following entries describe suggested variable (or method) names
@@ -63,6 +63,10 @@ from sets import *
 class BadInputArguments(Exception): pass
 class NotImplemented(Exception): pass
 class BadGraphConfig(Exception): pass
+
+# Enums used in module class interfaces
+eSerial = 1
+eParallel = 2
 
 class DataflowNode(object):
     """Interface class to define type.  
@@ -195,19 +199,88 @@ class SingleDataflowNode(DataflowNode):
         
 
 class CompositeDataflowNode(DataflowNode):
-    # Public interface
+    ### Public interface
+
+    ## Creating structure
 
     # Constructor is considered public; may be called via:
     # CompositeDataflowNode() -- Null container
     # CompositeDataflowNode(node) -- Wrapper around single node
     # CompositeDataflowNode(nodes, links) -- Links two or more nodes
+    def __init__(self, *args):
+        self.__contained_nodes = []
 
-    def numInputPorts(self):
-        return len(self.__input_port_descrs)
+	# These arrays map from the composite node port# to
+        # a port descriptor for an internal node
+        self.__input_port_descrs = []  
+        self.__output_port_descrs = [] 
 
-    def numOutputPorts(self):
-        return len(self.__output_port_descrs)
+        if len(args) == 0:
+            return # Composite node with no components
+        elif len(args) == 1:
+            self.__checkArgIsNode(args[0], "First argument to composite node constructor");
+            self.__initFromSingleton(self, args[0])
+        else:
+            self.__initFromList(*args)
 
+    def addNode(self, node, links=eSerial):
+        """Add a new node to an existing CompositeDataflowNode.  The
+        new node may be Single or Composite.  LINKS is a list of links
+        ((sport_descr, dport_descr) tuples) in which all node indices are
+        0 (referring to self) or 1 (referring to node)."""
+
+        # Validate arguments
+        if not isinstance(node, DataflowNode):
+            raise BadInputArguments("Arg NODE (%s) to method CompositeDataflowNode.addNode isn't a DataflowNode" %s node)
+
+        self.__checkLinksArg(links, (self,node), "CompositeDataflowNode.addNode")
+
+        # Translate symbolic links argument to list
+        if links == eParallel:
+            links = []
+        elif links == eSerial:
+            links = [((0,i),(1,i)) for i in range(node.numInputPorts())]
+
+        # Save the important data about ourselves before consuming the new
+        # node, then eat it.  This will produce a valid composite node without
+        # any of the links having been executed.
+        oport_offset = len(self.__output_port_descrs)
+        iport_offset = len(self.__input_port_descrs)
+        self.__addNodeNoLinks(node)
+
+        # Execute the links 
+        oiports = [(l[0][1] if l[0][0] == 0 else l[0][1] + oport_offset,
+                    l[1][1] if l[1][0] == 0 else l[1][1] + iport_offset)
+                   for l in links]
+        # Transpose the above array into (oports, iports) and pass
+        # that list as the args list to makeInternalLinks
+        self.makeInternalLinks(*zip(*oiport))
+
+    def makeInternalLinks(self, output_ports, input_ports):
+        # For creating links within already existing graphs; i.e. merges
+
+        # Get the descriptors without removing them since that would change
+        # the mapping for future descriptors
+        oport_descrs = [self.__output_port_descrs[port]
+                        for port in output_ports]
+        iport_descrs = [self.__output_port_descrs[port]
+                        for port in output_ports]
+
+        # Remove those ports from the list; they're about to be used up
+        self.__output_port_descrs = [self.__output_port_descrs[i]
+                                     for i in self.numOutputPorts()
+                                     if i not in output_ports]
+        self.__input_port_descrs = [self.__input_port_descrs[i]
+                                     for i in self.numInputPorts()
+                                     if i not in input_ports]
+
+        # Make all the links
+        for oport_descr, iport_descr in zip(oport_descrs, iport_descrs):
+            SingleDataflowNode._SingleDataflowNode_link(
+                (self.__contained_nodes[oport_descr[0]], oport_descr[1]),
+                (self.__contained_nodes[iport_descr[0]], iport_descr[1])
+                )
+        
     def run(self):
         """Run the dataflow graph contained in this object."""
         ### Check:
@@ -244,6 +317,32 @@ class CompositeDataflowNode(DataflowNode):
                 if not d.execute_(num_recs):
                     nodes.remove(d)
 
+    def copy(self):
+        copy_node = CompositeDataflowNode()
+        # Safe to make shallow copy as entries are tuples, which are immutable
+        copy_node.__output_port_descrs = self.__output_port_descrs[:]
+        copy_node.__input_port_descrs = self.__input_port_descrs[:]
+
+        # New copy of list
+        copy_node.__contained_nodes = [o.copy() for o in self.__contained_nodes[:]]
+
+        # Re-create internal links
+         for l in self.internalLinks():
+            (src_node_idx, src_port, dest_node_idx, dest_port) = l
+            DataflowNode._DataflowNode_link(
+                (copy_node.__contained_nodes[src_node_idx], src_port),
+                (copy_node.__contained_nodes[dest_node_idx], dest_port)
+                )
+
+        return copy_node
+
+    # Instance information probes
+    def numInputPorts(self):
+        return len(self.__input_port_descrs)
+
+    def numOutputPorts(self):
+        return len(self.__output_port_descrs)
+
     def internalNodes(self):
         return [node.copy() for node in self.__contained_nodes]
 
@@ -265,49 +364,10 @@ class CompositeDataflowNode(DataflowNode):
     def inputPortDescrs(self): return self.__input_port_descrs[:]
     def outputPortDescrs(self): return self.__output_port_descrs[:]
 
-    def makeInternalLink(self, output_port, input_port):
-        # For creating links within already existing graphs; i.e. merges
-        raise NotImplemented("CompositeDataflowNode.makeInternalLink not yet implemented.")
-        
-
-    def copy(self):
-        copy_node = CompositeDataflowNode()
-        # Safe to make shallow copy as entries are tuples, which are immutable
-        copy_node.__output_port_descrs = self.__output_port_descrs[:]
-        copy_node.__input_port_descrs = self.__input_port_descrs[:]
-
-        # New copy of list
-        copy_node.__contained_nodes = [o.copy() for o in self.__contained_nodes[:]]
-
-        # Re-create internal links
-         for l in self.internalLinks():
-            (src_node_idx, src_port, dest_node_idx, dest_port) = l
-            DataflowNode._DataflowNode_link(
-                (copy_node.__contained_nodes[src_node_idx], src_port),
-                (copy_node.__contained_nodes[dest_node_idx], dest_port)
-                )
-
-        return copy_node
 
     # Protected (null; this is a final class not intended for inheritance).
 
     # Private
-    def __init__(self, *args):
-        self.__contained_nodes = []
-
-	# These arrays map from the composite node port# to
-        # a port descriptor for an internal node
-        self.__input_port_descrs = []  
-        self.__output_port_descrs = [] 
-
-        if len(args) == 0:
-            return # Composite node with no components
-        elif len(args) == 1:
-            self.__checkArgIsNode(args[0], "First argument to composite node constructor");
-            self.__initFromSingleton(self, args[0])
-        else:
-            self.__initFromList(*args)
-
     def __initFromSingleton(self, node):
         node = node.copy()
         if isinstance(node, CompositeDataflowNode):
@@ -319,8 +379,6 @@ class CompositeDataflowNode(DataflowNode):
             self.__input_port_descrs = [(0, i) for i in range(len(node.inputPorts()))]
             self.__output_port_descrs = [(0, i) for i in range(len(node.numOutputPorts()))]
 
-    eSerial = 1
-    eParallel = 2
     def __initFromList(self, nodes, links=eSerial):
         """Create a composite DFN from the passed in nodes and
         inter-node links specified.  NODES should be a list of
@@ -340,89 +398,57 @@ class CompositeDataflowNode(DataflowNode):
                     "Argument NODES to CompositeDataflowNode constructor contains invalid node %s" % node)
 
         # Validate link list
-        if (links != self.eSerial and links != self.eParallel &&
-            not isinstance(links, list)):
-            raise BadInputArguments("Argument LINKS to CompositeDataflowNode constructor has invalid value: %s" % links)
-        if isinstance(links, list):
-            for l in links:
-                if not (0 <= l[0][0] < len(nodes)):
-                    raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid source node index." % l)
-                if not 0 <= l[0][1] < nodes[l[0][0]].numOutputPorts():
-                    raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid source port index." % l)
-                if not (0 <= l[1][0] < len(nodes)):
-                    raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid destination node index." % l)
-                if not 0 <= l[1][1] < nodes[l[1][0]].numInputPorts():
-                    raise BadInputArguments("Link %s in CompositeDataflowNode constructor has invalid destination port index." % l)
+        self.__checkLinksArg(links, nodes, "CompositeDataflowNode(nodes, links) constructor")
 
-        # Verify eSerial requirement & create real link list from
-        # symbolic args
+        # Create a real link list from symbolic args
         if links==eParallel:
             links = []          # No extra links to form
         if links==eSerial:
             links = []
             for i in range(len(nodes)-1):
-                if nodes[i].numOutputPorts() != nodes[i+1].numInputPorts():
-                    raise BadInputArguments("""
-Serial CompositeDataflowNode creation requirement failure:
-%s node number of outputs (%d) is different from %s node number of inputs (%d)"""
-                                            % (nodes[i].repr(),
-                                               nodes[i].numOutputPorts(),
-                                               nodes[i+1].repr(),
-                                               nodes[i+1].numInputPorts()))
-                links += [((i, j), (i+1,j)) for j in range(nodes.[i].numOutputPorts())]
+                links += [((i, j), (i+1,j))
+                          for j in range(nodes.[i].numOutputPorts())]
 
         # Turn everything composite
         nodes = [CompositeDataflowNode(n) for n in nodes]
 
-        # Copy everything in, recording offsets
-        port_descr_node_offsets = reduce(lambda x, y: x + [x[-1]+y,],
-                         [len(n.__SubOperators) for n in nodes],
-                         [0])
-        self.__contained_nodes = reduce(lambda x, y: x+y,
-                                     [n.__contained_nodes for n in nodes])
-        
-        # Create internal links from each of the arguments
-        for (i,n) in enumerate(nodes):
-            node_offset = port_descr_node_offsets[i]
-            links = n.internalLinks()
-            SingleDataflowNode._SingleDataflowNode_link(
-                (self.__contained_nodes[node_offset+links[0][0]], links[0][1]),
-                (self.__contained_nodes[node_offset+links[1][0]], links[0][1])
-                )
-                
-        # Create lists of lists of mappings.  The outer list is
-        # indexed by composite node index (from nodes arg above), and the
- 	# inner list by composite node port number, and the
-        # results of the mapping are simple node indices within
-        # the newly created node. 
-        iport_nested_descrs = [
-            [(ni+port_descr_node_offsets[cni], port)
-             for ni, port in cn.__input_port_descrs]
-            for cn, cni in enumerate(nodes)]
-        oport_nested_descrs = [
-            [(ni+port_descr_node_offsets[cni], port)
-             for ni, port in cn.__output_port_descrs]
-            for cn, cni in enumerate(nodes)]
+        # Record the offsets needed
+        port_descr_iport_offsets = reduce(lambda x, y: x + [x[-1]+y,],
+                                          [len(n.__input_port_descrs)
+                                           for n in nodes],
+                                          [0])
+        port_descr_oport_offsets = reduce(lambda x, y: x + [x[-1]+y,],
+                                          [len(n.__output_port_descrs)
+                                           for n in nodes],
+                                          [0])
 
-        # Execute each link in the links list, modifying the input
-        # and output port mappings as you go.
-        for source, dest in links:
-            (sourcecnode, sourcecport) = source
-            (destcnode, destcport) = dest
+        # Create a single composite operator containing all of the
+        # passed arguments, but without any links executed.
+        # This presumes we're currently empty
+        for n in nodes:
+            self.__addNodeNoLinks(n)
 
-            # Removing the descriptor keeps the mappings accurate as
-            # the internal links are made
-            sport_descr = oport_nested_descrs[sourcecnode].pop(sourcecport)
-            dport_descr = iport_nested_descrs[destcnode].pop(destcport)
-            SingleDataflowNode._SingleDataflowNode_link(
-                (self.__contained_nodes[sport_descr[0]], sport_descr[1]),
-                (self.__contained_nodes(dport_descr[0]], dport_descr[1])
-                )
+        # Translate all the links into the port space of the new
+        # composite operator & execute them.
+        intlinks = [(l[0][1] + port_descr_oport_offsets[l[0][0]],
+                     l[1][1] + port_descr_iport_offsets[l[1][0]])
+                    for l in links]
+        self.makeInternalLinks(*zip(*intlinks))
 
-        # What's left in the mappings, flattened, should describe the remaining
-        # open ports
-        self.__input_port_descrs = reduce(lambda x, y: x+y, iport_nested_descrs)
-        self.__output_port_descrs = reduce(lambda x, y: x+y, oport_nested_descrs)
+    def __addNodeNoLinks(self, node):
+        assert isinstance(node, DataflowNode)
+
+        # Copy and make composite for simplicity, then add it in
+        node = CompositeDataflowNode(node) # Copies and normalizes
+
+        node_idx_offset = len(self.__contained_nodes)
+        self.__contained_nodes += node.__contained_nodes
+        self.__input_port_descrs += [(port_descr[0] + node_idx_offset,
+                                      port_descr[1])
+                                     for port_descr in node.__input_port_descrs]
+        self.__output_port_descrs += [(port_descr[0] + node_idx_offset,
+                                      port_descr[1])
+                                     for port_descr in node.__output_port_descrs]
 
     def __checkAcyclic(self):
         # Get a list of links (skipping ports; unneeded for this algorithm)
@@ -493,3 +519,29 @@ Serial CompositeDataflowNode creation requirement failure:
              or not isinstance(node[1], int))):
             raise BadInputArguments("%s isn't DataflowNode or (DataflowNode,int) tuple" % arg_descript)
 
+    @staticmethod
+    def __checkLinksArg(links, nodes, method_name):
+        """Confirm that the LINKS argument is valid in the context of the
+        node list.  This means that it's a link list with valid
+        values in the context of the node list, or it's eParallel, or it's
+        eSerial and adjacent nodes have matching number of input and output
+        ports."""
+        if not (links == eSerial or links == eParallel
+                or isinstance(links, list)):
+            raise BadInputArguments("Args LINKS (%s) to method %s isn't eSerial, eParallel or a list." % (list, method_name))
+        if isinstance(links, list):
+            for l in links:
+                if not (0 <= l[0][0] < range(len(nodes))
+                        and 0 <= l[1][0] < range(len(nodes))):
+                    raise BadInputArguments("Link %s in arg LINKS to method %s contains a reference to an out of bounds node." % (l, method_name))
+                if not 0 <= l[0][1] < nodes[l[0][0]].numOutputPorts():
+                    raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range output port (%d)." % (l, method_name, l[0][1]))
+                if not 0 <= l[1][1] < nodes[l[1][0]].numInputPorts():
+                    raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range input port (%d)." % (l, method_name, l[1][1]))
+
+        if links == eSerial:
+            for i in range(len(nodes)-1):
+                if nodes[i].numOutputPorts() != nodes[i+1].numInputPorts():
+                    raise BadInputArguments("Method %s called with eSerial and non-matching numbers of output (%d) and input (%d) ports on nodes %d, %d." % (method_name, nodes[i].numOutputPorts(), nodes[i+1].numInputPorts(), i, i+1))
+
+        
