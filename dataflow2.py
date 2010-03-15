@@ -2,14 +2,128 @@
 import copy
 from sets import *
 
-# Note: Changing the way that port numbers map when nodes are combined
-# from being based around the nature of the combination of the node
-# (splitting the space around the link between the nodes) to being order
-# of node dependent (If there are two nodes A & B, and A has two
-# inputs and B has five, then the combined node will have 7 inputs, the
-# first two of which are As and the last five of which are B's.  If
-# some of those inputs are used in linking A & B, they'll be elided
-# from that order).  
+###		Dataflow Programming Library
+
+# This module implements a simple dataflow programming library,
+# allowing nodes of a dataflow graph to be easily created, linked
+# together, and run as a program.  The library provides some commonly
+# needed dataflow operators/nodes (split, serial merge, record
+# windowing, data sink to a function), base classes from which other
+# nodes may be derived, and a set of primitive operators for combining
+# nodes.
+#
+# A "DataflowNode" is a operation with some number of inputs and some
+# number of outputs that does an arbitrary transformation on the inputs
+# to produce the outputs.  Inputs and outputs are named by an index
+# (0 <= i < node.num{Input,Output}Ports()) in the context of a particular
+# node.  
+#
+# Combination of any number of DataflowNodes is also a DataflowNode.
+# Combination of nodes always occurs in the context of a specific
+# ordering of the combined nodes.  If the nodes are combined without
+# linking (see "Parallel Combination" below) the input and output
+# ports of the individual nodes are mapped to the input and output
+# ports of the combined node by adding the number of ports of all the
+# of the earlier nodes in the ordering to that port.  I.e. the name of
+# an input or output port is the index into the nodes array of input
+# or output ports, and the arrays of the combined node are formed by
+# concatening in order the arrays of the component nodes.  Any links
+# made between nodes result in removal of the ports used for those
+# links from that combined array.
+# 
+# In combining nodes, arbitrary linking of ports may be specified.
+# Two simplified forms of node combination are also supported: Serial
+# Combinination and Parallel Combination.  In serial combination, the
+# number of outputs of each node must equal the number of inputs to
+# the next node in the sequence, and those outputs and inputs are
+# connected.  In parallel combination, no linking is done; all inputs
+# and outputs of all nodes remain exposed.
+#
+# The "&" operator corresponds to serial combination, the "|" operator
+# to parallel combination.  Note that this does not follow the bourne
+# shell pipe conventions; instead it attempts to parallel the
+# mathematical meaning of "&" and "|" in the context of a dataflow
+# graph.
+# 
+# The simplest class derived from SingleDataflowNode will override the
+# input_() routine to accept incoming records, and will implement that
+# routine to call the output_() routine with the transformation of
+# those incoming records; no other code is required.  Other options
+# available to derived classes are:
+#	* Overridding "eos_" to receive notification from upstream
+# 	  nodes that no further data will be received on a link, and
+# 	  calling _signalEos() to signal the same to downstream
+# 	  nodes.  This is recommended, as some nodes may rely on eos()
+# 	  processing to complete their functioning (e.g. sort())
+# 	* Overriding "initialize_" to get a notification after the
+# 	  graph has been created but before it starts to run, to do
+# 	  any expensive initialization that may be required.
+#	* Overridding "seekOutput_" to signal that they can specially
+# 	  handle requests from downstream nodes to skip over some
+# 	  number of records (if not overridden the infrastructure
+# 	  automatically discards those records).
+#	* Overriding "execute_" to receive a thread context.  This is
+# 	  usually only needed for generator nodes (i.e. nodes that
+# 	  have no input but produce outputs).  
+
+# Implementation sketch
+
+# The three key classes in this file are DataflowNode,
+# SingleDataflowNode, and CompositeDataflowNode.  DataflowNode is an
+# interface/abstract base class from which SingleDataflowNode and
+# CompositeDataflowNode derive.  SingleDataflowNode contains the
+# individual nodes within a dataflow graph.  CompositeDataflowNode
+# could also have been called "DataflowGraph"; it contains some number
+# of simple operators (including zero) connected into a graph.  It may
+# not be executed until there are no inputs or outputs remaining on
+# it.
+#
+# Note that CompositeDataflowNodes don't contain other
+# CompositeDataflowNodes; when two CompositeDataflowNodes are merged,
+# a new CompositeDataflowNode is created containing operators
+# corresponding to all of the operators in the two arguments.  This
+# does not modify the arguments (except in specific cases where that
+# behavior is required, e.g. CompositeDataflowNode.addNode())
+#
+# The key code for creating combinations of DataflowNodes is in the
+# following routines:
+# 	* CompositeDataflowNode.__addNodeNoLinks().  This modifies the current
+#	  composite node by adding another node (Single or Composite)
+#	  to it without making any links between the two.
+#	* CompositeDataflowNode.makeInternalLinks().  This makes links
+#	  within an already existing CompositeDataflowNode between
+#	  some of its output ports and some of its input ports.
+#	* CompositeDataflowNode.addNode(),
+#	  CompositeDataflowNode.__initFromList().  These functions
+#	  translate the external view of the links requested (before
+#	  __addNodeNoLinks() was called) into the view of the new
+#	  CompositeDataflowNode.
+#
+# The key code for execution of an existing dataflow graph is in the
+# following routines:
+#	* CompositeDataflowNode.run().  Runs a series of checks on the
+#	  graph, initializes the graph, and then drives the nodes that
+#	  need an execution thread by calling their execute_()
+#	  routines.
+#	* SingleDataflowNode._output().  Called by each node when it
+#	  needs to pass a record onto the next node in the graph.
+#	* <user defined class>.input_().  This function is called
+#	  whenever a new input record is to be presented to a node.
+#	  It must be overridden by all DataflowNodes except those
+#	  which have no inputs.
+#	  
+# The library also provides support for signalling end of stream (so
+# that nodes can do any cleanup or terminal work), for requesting 
+# a gap in the output (to avoid the cost of a pipe processing a lot of
+# records which will then be discarded), and for providing a thread
+# context for nodes which generate data but do not consume it.
+#
+# The library is biased towards as simple a programming model as
+# possible for creation of the dataflow graph, and as a result accepts
+# the costs of a lot of copying during graph creation.  Performance is only
+# a priority for graph execution.
+
+# Naming conventions
 
 # Class method naming conventions.
 #	* Public methods: No decoration
@@ -22,8 +136,6 @@ from sets import *
 #	  in the derived class): Suffixed with a single underscore.
 # If a method is public but expected to be overridden by derived classes,
 # it is named as public.
-
-# Naming conventions
 
 # * Types (classes) are CamelCase with initial caps.
 # * Class methods are camelCase with initial lowercase.
