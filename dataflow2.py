@@ -120,7 +120,11 @@ from sets import *
 #
 # The library is biased towards as simple a programming model as
 # possible for creation of the dataflow graph, and as a result accepts
-# the costs of a lot of copying during graph creation.  Performance is only
+# the costs of a lot of copying during graph creation.  Specifically,
+# it has the invariant that the user never has a reference to a node
+# that has links to other nodes.  It may have a reference to a
+# composite node that has internal links, but never to a node (single
+# or composite) that has links outside of itself.  Performance is only
 # a priority for graph execution.
 
 # Naming conventions
@@ -185,8 +189,14 @@ class DataflowNode(object):
 In C++ this would be an abstract base class, in Java an interface."""
     # Public interface
     def numInputPorts(self):
+        """Return the number of input ports that this node has
+        available.  Defines the range of allowed input port indices that can
+        be used in the context of this operator."""
         raise NotImplemented("Method numInputPorts not overridden in inherited class.")
     def numOutputPorts(self):
+        """Return the number of output ports that this node has
+        available.  Defines the range of allowed output port indices that can
+        be used in the context of this operator."""
         raise NotImplemented("Method numOutputPorts not overridden in inherited class.")
 
     def __and__(self, node):
@@ -213,16 +223,27 @@ In C++ this would be an abstract base class, in Java an interface."""
 
 class SingleDataflowNode(DataflowNode):
     ### Public methods
-    def numInputPorts(self): return self.__num_input_ports
-    def numOutputPorts(self): return self.__num_output_ports
+    def numInputPorts(self):
+        """Return the number of input ports that this node has
+        available.  Defines the range of allowed input port indices that can
+        be used in the context of this operator."""
+        return self.__num_input_ports
+    def numOutputPorts(self):
+        """Return the number of output ports that this node has
+        available.  Defines the range of allowed output port indices that can
+        be used in the context of this operator."""
+        return self.__num_output_ports
 
     def copy(self):
+        """Create a copy of this node."""
         copy_node = copy.copy(self)
         copy_node.__initConnections() # Nuke any links; they're incorrect now.
         return copy_node
 
     ### "Protected" interface (for use of derived classes
     def __init__(self, num_input_ports=1, num_output_ports=1):
+        """Initialize the base class, specifying the number of input
+        and output ports."""
         self.__num_input_ports = num_input_ports
         self.__num_output_ports = num_output_ports
 
@@ -230,12 +251,15 @@ class SingleDataflowNode(DataflowNode):
         self.__initConnections(num_input_ports, num_output_ports)
         
     def _signalEos(self, output_port=0):
+        """Signal that no more records will be transmitted on this port."""
         assert self.__output_nodes[output_port]
         dest_self_iport = self.__output_nodes[output_port].__input_nodes.index(self)
         self.__output_nodes[output_port].eos_(dest_self_iport)
         self.__output_nodes[output_port] = None
 
     def _ignoreInput(self, num_recs=-1, input_port=0):
+        """Request that the given number of records be skipped on this
+        port.  NUM_RECS == -1 indicates that all records may be skipped."""
         assert self.__input_nodes[input_port]
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
         if not self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport):
@@ -243,12 +267,14 @@ class SingleDataflowNode(DataflowNode):
             self.__input_nodes[input_port].__ignoring_output_records[src_self_oport] = num_recs
         
     def _done(self):
+        """Signal that this node has completed all its processing."""
         for i in range(self.__num_input_ports):
             self.ignoreInput(input_port=i)
         for i in range(self.__num_output_ports):
             self.signalEos(i)
 
     def _output(self, output_port, rec):
+        """Output a record on the specified port for the next node."""
         assert self.__output_nodes[output_port] # Skip for performance?
         if self.__ignoring_output_records[output_port] != 0:
             self.__ignoring_output_records[output_port]--
@@ -305,6 +331,7 @@ class SingleDataflowNode(DataflowNode):
     ### "Private" interface, for use of class methods and friends
     ### (CompositeDataflowNode, specifically)
     def __initConnections(self):
+        """Initialize the connections data structure to have no links."""
         # Used for both init and copy
 
         # Will be filled in with the nodes in question
@@ -320,7 +347,7 @@ class SingleDataflowNode(DataflowNode):
     @staticmethod
     def __link(snodeport, dnodeport):
         """Make a link between the actual nodes passed (side effects
-        args).  Both SNODEPORT and DNODEPORT are tuples of the form
+        both arguments).  Both SNODEPORT and DNODEPORT are tuples of the form
         (node, port)."""
         (snode, sport) = snodeport
         (dnode, dport) = dnodeport
@@ -335,7 +362,7 @@ class SingleDataflowNode(DataflowNode):
 class CompositeDataflowNode(DataflowNode):
     ### Public interface
 
-    ## Creating structure
+    # Interfaces for structure creation
 
     # Constructor is considered public; may be called via:
     # CompositeDataflowNode() -- Null container
@@ -415,6 +442,77 @@ class CompositeDataflowNode(DataflowNode):
                 (self.__contained_nodes[iport_descr[0]], iport_descr[1])
                 )
         
+    def copy(self):
+        copy_node = CompositeDataflowNode()
+        # Safe to make shallow copy as entries are tuples, which are immutable
+        copy_node.__output_port_descrs = self.__output_port_descrs[:]
+        copy_node.__input_port_descrs = self.__input_port_descrs[:]
+
+        # New copy of list
+        copy_node.__contained_nodes = [o.copy() for o in self.__contained_nodes[:]]
+
+        # Re-create internal links
+         for l in self.internalLinks():
+            (src_node_idx, src_port, dest_node_idx, dest_port) = l
+            DataflowNode._DataflowNode_link(
+                (copy_node.__contained_nodes[src_node_idx], src_port),
+                (copy_node.__contained_nodes[dest_node_idx], dest_port)
+                )
+
+        return copy_node
+
+    # Interfaces for probing structure
+
+    def numInputPorts(self):
+        """Return the number of input ports that this node has
+        available.  Defines the range of allowed input port indices that can
+        be used in the context of this operator."""
+        return len(self.__input_port_descrs)
+
+    def numOutputPorts(self):
+        """Return the number of output ports that this node has
+        available.  Defines the range of allowed output port indices that can
+        be used in the context of this operator."""
+        return len(self.__output_port_descrs)
+
+    def internalNodes(self):
+        """Returns a list of the internal nodes used for this
+        composite (copied to remove links)."""
+        return [node.copy() for node in self.__contained_nodes]
+
+    def internalLinks(self):
+        """Returns the links between the simple node that form
+        this composite node.  Links are of the form
+        ((source_op_idx, source_port), (dest_op_idx, dest_port)).
+        The op_idx are indices into the list returned by internalNodes()."""
+        links = []
+        for (src_node_idx, src_node) in enumerate(self.__contained_nodes):
+            for src_port in range(src_node.num_output_ports()):
+                dest_node = src_node._DataflowNode_outputs
+                if dest_node is not None:
+                    dest_node_idx = self.__contained_nodes.index(dest_node)
+                    dest_port = dest_node._DataflowNode_inputs.index(src_node)
+                    links.append((src_node_idx, src_port), (dest_node_idx, dest_port))
+        return links
+
+    def inputPortDescrs(self):
+        """Returns the mapping between input ports of the composite
+        node and the input ports of the single nodes within it.
+        The array returned is indexed by composite input port
+        descriptor and contains a list of tuples of the form
+        (dest_node_idx, dest_node_port)."""
+        return self.__input_port_descrs[:]
+
+    def outputPortDescrs(self): 
+        """Returns the mapping between output ports of the composite
+        node and the output ports of the single nodes within it.
+        The array returned is indexed by composite output port
+        descriptor and contains a list of tuples of the form
+        (src_node_idx, src_node_port)."""
+        return self.__output_port_descrs[:]
+
+    # Interfaces for running the graph
+
     def run(self):
         """Run the dataflow graph contained in this object."""
         ### Check:
@@ -451,53 +549,6 @@ class CompositeDataflowNode(DataflowNode):
                 if not d.execute_(num_recs):
                     nodes.remove(d)
 
-    def copy(self):
-        copy_node = CompositeDataflowNode()
-        # Safe to make shallow copy as entries are tuples, which are immutable
-        copy_node.__output_port_descrs = self.__output_port_descrs[:]
-        copy_node.__input_port_descrs = self.__input_port_descrs[:]
-
-        # New copy of list
-        copy_node.__contained_nodes = [o.copy() for o in self.__contained_nodes[:]]
-
-        # Re-create internal links
-         for l in self.internalLinks():
-            (src_node_idx, src_port, dest_node_idx, dest_port) = l
-            DataflowNode._DataflowNode_link(
-                (copy_node.__contained_nodes[src_node_idx], src_port),
-                (copy_node.__contained_nodes[dest_node_idx], dest_port)
-                )
-
-        return copy_node
-
-    # Instance information probes
-    def numInputPorts(self):
-        return len(self.__input_port_descrs)
-
-    def numOutputPorts(self):
-        return len(self.__output_port_descrs)
-
-    def internalNodes(self):
-        return [node.copy() for node in self.__contained_nodes]
-
-    def internalLinks(self):
-        """Returns the links between the simple node that form
-        this composite node.  Links are of the form
-        ((source_op_idx, source_port), (dest_op_idx, dest_port)).
-        The op_idx are indices into the list returned by internalNodes()."""
-        links = []
-        for (src_node_idx, src_node) in enumerate(self.__contained_nodes):
-            for src_port in range(src_node.num_output_ports()):
-                dest_node = src_node._DataflowNode_outputs
-                if dest_node is not None:
-                    dest_node_idx = self.__contained_nodes.index(dest_node)
-                    dest_port = dest_node._DataflowNode_inputs.index(src_node)
-                    links.append((src_node_idx, src_port), (dest_node_idx, dest_port))
-        return links
-
-    def inputPortDescrs(self): return self.__input_port_descrs[:]
-    def outputPortDescrs(self): return self.__output_port_descrs[:]
-
     # Operator overloading
     def __iand__(self, node):
         """Link the argument node into this one, attaching all outputs of
@@ -514,6 +565,7 @@ class CompositeDataflowNode(DataflowNode):
 
     # Private
     def __initFromSingleton(self, node):
+        """Make self a copy of node."""
         node = node.copy()
         if isinstance(node, CompositeDataflowNode):
             self.__contained_nodes = node.__contained_nodes
@@ -581,6 +633,9 @@ class CompositeDataflowNode(DataflowNode):
         self.makeInternalLinks(*zip(*intlinks))
 
     def __addNodeNoLinks(self, node):
+        """Add NODE to self, making no links between them.  Input and
+        output ports of the result will be a concatenation of the
+        input and output ports of self and node (in that order)."""
         assert isinstance(node, DataflowNode)
 
         # Copy and make composite for simplicity, then add it in
@@ -596,6 +651,7 @@ class CompositeDataflowNode(DataflowNode):
                                      for port_descr in node.__output_port_descrs]
 
     def __checkAcyclic(self):
+        """Confirm self graph has no cycles."""
         # Get a list of links (skipping ports; unneeded for this algorithm)
         links = [(s[0], d[0]) for (s, d) in self.internalLinks()]
         last_num_links = 0
@@ -624,6 +680,7 @@ class CompositeDataflowNode(DataflowNode):
             raise BadGraphConfig(msg)
 
     def __checkConnected(self):
+        """Confirm self graph is not disjoint."""
         # Idea is to start from a random link, and explore in
         # an undirected fashion from that link, marking nodes as
         # visited.  If there are unvisited nodes when we're done, we're
@@ -659,6 +716,7 @@ class CompositeDataflowNode(DataflowNode):
 
     @staticmethod
     def __checkArgIsNode(node, arg_descript):
+        """Confirm arg NODE is either a node, or a (node, port) tuple."""
         if (not isinstance(node, DataflowNode) and
             (len(node) != 2 or not isinstance(node[0], DataflowNode)
              or not isinstance(node[1], int))):
