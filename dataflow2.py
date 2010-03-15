@@ -11,6 +11,18 @@ from sets import *
 # some of those inputs are used in linking A & B, they'll be elided
 # from that order).  
 
+# Class method naming conventions.
+#	* Public methods: No decoration
+#	* Private methods: By language spec, prefixed with __ within the
+#	  class, and by _<classname>_ outside.
+#	* "Protected" methods (methods intended to be called only
+#	  by derived classes): Prefixed with a single underscore.
+#	  __init__ is an exception to this.
+#	* Base->Derived interface (interfaces the base class calls
+#	  in the derived class): Suffixed with a single underscore.
+# If a method is public but expected to be overridden by derived classes,
+# it is named as public.
+
 # Exceptions used by module
 class BadInputArguments(Exception): pass
 class NotImplemented(Exception): pass
@@ -43,45 +55,45 @@ class SingleDataflowNode(DataflowNode):
         # Setup the basic connection tracking
         self.__initConnections(inputs, outputs)
         
-    def signalEos(self, outputPort=0):
+    def _signalEos(self, outputPort=0):
         assert self.__outputs[outputPort]
         myInputIndex = self.__outputs[outputPort].__inputs.index(self)
-        self.__outputs[outputPort].eos(myInputIndex)
+        self.__outputs[outputPort].eos_(myInputIndex)
         self.__outputs[outputPort] = None
 
-    def ignoreInput(self, numRecords=-1, inputPort=0):
+    def _ignoreInput(self, numRecords=-1, inputPort=0):
         assert self.__inputs[inputPort]
         myOutputIndex = self.__inputs[inputPort].__outputs.index(self)
-        if not self.__inputs[inputPort].seekOutput(numRecords, myOutputIndex):
+        if not self.__inputs[inputPort].seekOutput_(numRecords, myOutputIndex):
             assert len(self.__inputs[inputPort].__ignoringOutRecords) > myOutputIndex
             self.__inputs[inputPort].__ignoringOutRecords[myOutputIndex] = numRecords
         
-    def done(self):
+    def _done(self):
         for i in range(self.__numInputs):
             self.ignoreInput(inputPort=i)
         for i in range(self.__numOutputs):
             self.signalEos(i)
         self.__needThreading = False
 
-    def output(self, outputPort, rec):
+    def _output(self, outputPort, rec):
         assert self.__outputs[outputPort] # Skip for performance?
         if self.__ignoringOutRecords[outputPort] != 0:
             self.__ignoringOutRecords[outputPort]--
         else:
-            self.__outputs[outputPort].input(self.__outputNodeInputs[outputPort], rec)
+            self.__outputs[outputPort].input_(self.__outputNodeInputs[outputPort], rec)
 
     ### Stubs of functions that derived classes may choose to implement
-    def input(self, inputPort, rec):
+    def input_(self, inputPort, rec):
         """Override to accept input from upstream operators."""
         raise NotImplemented("input method for SingleDataflowNode not implemented in derived class.")
 
-    def eos(self, inputPort):
+    def eos_(self, inputPort):
         """Override if notification of end of stream (no further input
         will be provided) is wanted; this function will be called when the
         operator linked to the indicated port signals EOS."""
         pass
 
-    def seekOutput(self, numRecords, outputPort):
+    def seekOutput_(self, numRecords, outputPort):
         """Override if a request from a downstream operator to seek
         forward NUMRECORDS in the stream can be handled in some
         efficient fashion by the operator.  If this function returns
@@ -95,7 +107,7 @@ class SingleDataflowNode(DataflowNode):
         dropped as far upstream as possible."""
         return False
 
-    def execute(self, numrecords):
+    def execute_(self, numrecords):
         """Override if the operator requires threading support during
         execution.  This is usually only for pure output operators
         (e.g. read a line from a file and output it as a record); most
@@ -110,7 +122,7 @@ class SingleDataflowNode(DataflowNode):
         processing for the operator to do."""
         return False
 
-    def initialize(self):
+    def initialize_(self):
         """Override if the derived operator should perform some expensive
         initialization before processing.  Many copies of classes will be
         constructed and destructed during graph creation, so (e.g.) opening
@@ -181,9 +193,9 @@ def CompositeDataflowNode(DataflowNode):
 
         # Initialize the graph
         for n in self.__subOperators:
-            n.initialize()
+            n.initialize_()
 
-        # Call all execute() routines until they've all returned
+        # Call all execute_() routines until they've all returned
         # False.  Stop calling an operator's routine when it returns
         # False.  If there's only one operator, just hand control to it.
         drivers = self.__subOperators[:]
@@ -191,7 +203,7 @@ def CompositeDataflowNode(DataflowNode):
             driverCopy = drivers[:]
             nr = 1 if len(driverCopy) > 1 else -1
             for d in driverCopy:
-                if not d.execute(nr):
+                if not d.execute_(nr):
                     drivers.remove(d)
 
     def nodeList(self):
