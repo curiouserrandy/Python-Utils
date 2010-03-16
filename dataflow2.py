@@ -1,5 +1,7 @@
+#!/usr/bin/env python
 
 import copy
+import sys
 from sets import *
 
 ###		Dataflow Programming Library
@@ -1005,10 +1007,45 @@ class FileWriteDFN(SingleDataflowNode):
     def eos_(self, input_port=0):
         self.__file.close()
         self._done()
-        
+
+class GenerateIntervalDFN(SingleDataflowNode):
+    """General a series of integers according to the usual python rules
+    on the output.  Interval tuple is (start, bound[, stride]) as usual
+    for python.  Primarily used for debugging."""
+    def __init__(self, interval_tuple):
+        SingleDataflowNode.__init__(num_input_ports=0)
+        def gfunc():
+            for i in range(*interval_tuple):
+                yield i
+        self.__gfunc = gfunc
+    def execute_(self, num_recs):
+        try:
+            while num_recs != 0:
+                self._output(self.__gfunc())
+                if num_recs != -1: num_recs--
+        except StopIteration:
+            self._done()
+
 # Functions to consider implementing: __init__, input_(iport,rec), eos_(iport*),
 # seekOutput_(nr,oport), execute_(nr), initialize_()
 
 class ByteWindowDFN(SingleDataflowNode):
     pass
 
+## Testing
+def printRec(rec):
+    print rec
+
+def test1():
+    g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
+    g.run()
+
+test_function_mapping = {
+    "simple_pipe" : test1
+    }
+
+if __name__ == "__main__":
+    assert len(sys.argv) > 1, "No argument for test provided"
+    test_name = sys.argv[1]
+    assert test_name in test_function_mapping, "Test %s not found" % test_name
+    test_function_mapping[test_name](test_name, sys.argv[2:])
