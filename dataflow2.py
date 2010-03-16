@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import pdb
 import copy
 import sys
 
@@ -291,7 +292,7 @@ class SingleDataflowNode(DataflowNode):
         self.__num_output_ports = num_output_ports
 
         # Setup the basic connection tracking
-        self.__initConnections(num_input_ports, num_output_ports)
+        self.__initConnections()
         
     def _signalEos(self, output_port=0):
         """Signal that no more records will be transmitted on this port."""
@@ -432,7 +433,7 @@ class CompositeDataflowNode(DataflowNode):
             return # Composite node with no components
         elif len(args) == 1:
             checkArgIsNode(args[0], "First argument to composite node constructor");
-            self.__initFromSingleton(self, args[0])
+            self.__initFromSingleton(args[0])
         else:
             for n in args[0]:
                 checkArgIsNode(n, "Element of first argument to composite node constructor")
@@ -487,20 +488,20 @@ class CompositeDataflowNode(DataflowNode):
         # the mapping for future descriptors
         oport_descrs = [self.__output_port_descrs[port]
                         for port in output_ports]
-        iport_descrs = [self.__output_port_descrs[port]
-                        for port in output_ports]
+        iport_descrs = [self.__input_port_descrs[port]
+                        for port in input_ports]
 
         # Remove those ports from the list; they're about to be used up
         self.__output_port_descrs = [self.__output_port_descrs[i]
-                                     for i in self.numOutputPorts()
+                                     for i in range(self.numOutputPorts())
                                      if i not in output_ports]
         self.__input_port_descrs = [self.__input_port_descrs[i]
-                                     for i in self.numInputPorts()
+                                     for i in range(self.numInputPorts())
                                      if i not in input_ports]
 
         # Make all the links
         for oport_descr, iport_descr in zip(oport_descrs, iport_descrs):
-            SingleDataflowNode._SingleDataflowNode_link(
+            SingleDataflowNode._SingleDataflowNode__link(
                 (self.__contained_nodes[oport_descr[0]], oport_descr[1]),
                 (self.__contained_nodes[iport_descr[0]], iport_descr[1])
                 )
@@ -517,7 +518,7 @@ class CompositeDataflowNode(DataflowNode):
         # Re-create internal links
         for l in self.internalLinks():
             (src_node_idx, src_port, dest_node_idx, dest_port) = l
-            DataflowNode._DataflowNode_link(
+            DataflowNode._SingleDataflowNode__link(
                 (copy_node.__contained_nodes[src_node_idx], src_port),
                 (copy_node.__contained_nodes[dest_node_idx], dest_port)
                 )
@@ -544,24 +545,25 @@ class CompositeDataflowNode(DataflowNode):
         return [node.copy() for node in self.__contained_nodes]
 
     def internalLinks(self):
-        """Returns the links between the simple node that form
+        """Returns the links between the simple nodes that form
         this composite node.  Links are of the form
         ((source_op_idx, source_port), (dest_op_idx, dest_port)).
         The op_idx are indices into the list returned by internalNodes()."""
         links = []
         for (src_node_idx, src_node) in enumerate(self.__contained_nodes):
-            for src_port in range(src_node.num_output_ports()):
-                dest_node = src_node._DataflowNode_outputs
+            for src_port in range(src_node.numOutputPorts()):
+                dest_node = src_node._SingleDataflowNode__output_nodes[src_port]
                 if dest_node is not None:
                     dest_node_idx = self.__contained_nodes.index(dest_node)
-                    dest_port = dest_node._DataflowNode_inputs.index(src_node)
-                    links.append((src_node_idx, src_port), (dest_node_idx, dest_port))
+                    dest_port = dest_node._SingleDataflowNode__input_nodes.index(src_node)
+                    links.append(((src_node_idx, src_port), (dest_node_idx, dest_port)))
         return links
 
     def inputPortDescrs(self):
         """Returns the mapping between input ports of the composite
         node and the input ports of the single nodes within it.
-        The array returned is indexed by composite input port
+        The array returned is indexed by composite input p
+ort
         descriptor and contains a list of tuples of the form
         (dest_node_idx, dest_node_port)."""
         return self.__input_port_descrs[:]
@@ -645,8 +647,8 @@ class CompositeDataflowNode(DataflowNode):
             self.__output_port_descrs = node.__output_port_descrs
         else:
             self.__contained_nodes = [node.copy()]
-            self.__input_port_descrs = [(0, i) for i in range(len(node.inputPorts()))]
-            self.__output_port_descrs = [(0, i) for i in range(len(node.numOutputPorts()))]
+            self.__input_port_descrs = [(0, i) for i in range(node.numInputPorts())]
+            self.__output_port_descrs = [(0, i) for i in range(node.numOutputPorts())]
 
     def __initFromList(self, nodes, links=eSerial):
         """Create a composite DFN from the passed in nodes and
@@ -676,11 +678,11 @@ class CompositeDataflowNode(DataflowNode):
 
         # Record the offsets needed
         port_descr_iport_offsets = reduce(lambda x, y: x + [x[-1]+y,],
-                                          [len(n.__input_port_descrs)
+                                          [n.numInputPorts()
                                            for n in nodes],
                                           [0])
         port_descr_oport_offsets = reduce(lambda x, y: x + [x[-1]+y,],
-                                          [len(n.__output_port_descrs)
+                                          [n.numOutputPorts()
                                            for n in nodes],
                                           [0])
 
@@ -846,7 +848,7 @@ class FilterDFN(SingleDataflowNode):
 class SinkDFN(SingleDataflowNode):
     """DFN to pass each record to a function."""
     def __init__(self, sink_func):
-        SingleDataflowNode.__init__(self, num_outputs=0)
+        SingleDataflowNode.__init__(self, num_output_ports=0)
         self.__sink_func = sink_func
 
     def input_(self, input_port, rec):
