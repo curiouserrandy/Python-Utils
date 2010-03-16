@@ -67,6 +67,7 @@ import sys
 #	* Overriding "execute_" to receive a thread context.  This is
 # 	  usually only needed for generator nodes (i.e. nodes that
 # 	  have no input but produce outputs).  
+#	* Overriding "batchInput_" to receive groups of record at a time.
 
 # Implementation sketch
 
@@ -348,14 +349,50 @@ class SingleDataflowNode(DataflowNode):
         # Not doing interface checking for performance; this function
         # is called repeatedly
         if self.__ignoring_output_records[output_port] != 0:
-            self.__ignoring_output_records[output_port] -= 1
+            if self.__ignoring_output_records[output_port] != -1:
+                self.__ignoring_output_records[output_port] -= 1
         else:
             self.__output_nodes[output_port].input_(self.__output_node_iports[output_port], rec)
+
+    def _batchOutput(self, output_port, recs):
+        """Output a whole bunch of records at once."""
+        if self.__ignoring_output_records[output_port] != 0:
+            if self.__ignoring_output_records == -1:
+                return          # Ignore all of them
+            if self.__ignoring_output_records[output_port] >= len(recs):
+                self.__ignoring_output_records[output_port] =- len(recs)
+                return
+            else:
+                recs = recs[self.__ignoring_output_records[output_port]:]
+        res = self.__output_nodes[output_port].batchInput_(
+            self.__output_node_iports[output_port], recs
+            )
+        assert res is not None
+        if not res:
+            dnode = self.__output_nodes[output_port]
+            dport = self.__output_node_iports[output_port]
+            for r in recs:
+                dnode.input_(dport, r)
 
     ### Stubs of functions that derived classes may choose to implement
     def input_(self, input_port, rec):
         """Override to accept input from upstream nodes."""
         raise NotImplementedError, "SingleDataflowNode.input_ method not implemented in derived class."
+
+    def batchInput_(self, input_port, recs):
+        """Override to accept batches of records all at once from upstream
+        nodes.  This is a performance optimization when you're in a pipe that
+        you expect to have large numbers of small records, and the upstream
+        operator may have many of them to send at once (i.e. where the record
+        boundaries have some meaning that isn't related to a natural processing
+        unit.
+        RECS will be a sequence of individual records.  The result of calling
+        batchInput_ should be the same as the loop
+        	for r in recs: n.input_(self, input_port, r)
+        which is precisely what the infrastructure will do if batchInput_
+        is not defined.  Return True from this function if it successfully
+        hands the batch."""
+        return False
 
     def eos_(self, input_port):
         """Override if notification of end of stream (no further input
@@ -1065,9 +1102,6 @@ class GenerateIntervalDFN(SingleDataflowNode):
             self._done()
             return False
         return True
-
-class ByteWindowDFN(SingleDataflowNode):
-    pass
 
 ## Testing
 def printRec(rec):
