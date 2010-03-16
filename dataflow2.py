@@ -228,7 +228,7 @@ def checkLinksArg(links, nodes, method_name):
     if links == eSerial:
         for i in range(len(nodes)-1):
             if nodes[i].numOutputPorts() != nodes[i+1].numInputPorts():
-                raise BadInputArguments, "Method %s called with eSerial and non-matching numbers of output (%d) and input (%d) ports on nodes %d, %d." % (method_name, nodes[i].numOutputPorts(), nodes[i+1].numInputPorts(), i, i+1)
+                raise BadInputArguments, "Method %s called with eSerial and non-matching numbers of output (%d) and input (%d) ports on nodes %s, %s." % (method_name, nodes[i].numOutputPorts(), nodes[i+1].numInputPorts(), str(nodes[i]), str(nodes[i+1]))
 
 
 class DataflowNode(object):
@@ -582,8 +582,10 @@ class CompositeDataflowNode(DataflowNode):
 
         # Re-create internal links
         for l in self.internalLinks():
-            (src_node_idx, src_port, dest_node_idx, dest_port) = l
-            DataflowNode._SingleDataflowNode__link(
+            source, dest = l
+            src_node_idx, src_port = source
+            dest_node_idx, dest_port = dest
+            SingleDataflowNode._SingleDataflowNode__link(
                 (copy_node.__contained_nodes[src_node_idx], src_port),
                 (copy_node.__contained_nodes[dest_node_idx], dest_port)
                 )
@@ -652,8 +654,10 @@ ort
         ### Call all initialize routines
         ### Drive graph by calling execute routines of nodes that need it.
 
-        assert self.numInputPorts() == 0
-        assert self.numOutputPorts() == 0
+        if self.numInputPorts() != 0:
+            raise BadInputArguments, "Graph %s has non-zero inputs" % self
+        if self.numOutputPorts() != 0:
+            raise BadInputArguments, "Graph %s has non-zero output" % self
 
         self.__checkAcyclic()
 
@@ -705,8 +709,8 @@ ort
                                                    self.numOutputPorts())
         res += "["
         for i,node in enumerate(self.__contained_nodes):
-            res += str(node)
             if i != 0: res += ", "
+            res += str(node)
         res += "] " + str(self.internalLinks()) + ">"
         return res
 
@@ -1090,7 +1094,7 @@ class StringNewlineBatchDFN(SingleDataflowNode):
     at newline boundaries.  The most obvious use is with FileSourceDFN."""
     def __init__(self):
         SingleDataflowNode.__init__(self)
-        self.__partial_lins = ""
+        self.__partial_line = ""
 
     def input_(self, input_port, rec):
         self.__partial_line += rec
@@ -1163,9 +1167,9 @@ crange = (80576595,80578821)
 lrange = (40, 60)
 
 def complexWindowTest(arg1, argr):
-    g = (FileSourceDFN(mbox_file) | SplitDFN(2)
+    g = (FileSourceDFN(mbox_file) & SplitDFN(2)
          & (WindowDFN(crange[0], crange[1])
-            | (StringNewlineBatchDFN() | WindowDFN(lrange[0], lrange[1])))
+            | (StringNewlineBatchDFN() & WindowDFN(lrange[0], lrange[1])))
          & SerialMergeDFN(2) & SinkDFN(printRec))
     g.run()
 
