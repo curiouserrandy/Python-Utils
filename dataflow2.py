@@ -305,7 +305,11 @@ class SingleDataflowNode(DataflowNode):
         port.  NUM_RECS == -1 indicates that all records may be skipped."""
         assert self.__input_nodes[input_port]
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
-        if not self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport):
+        rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
+        if rval is None:
+            raise BadInputArgument("%s.seekOutput_ function did not return a value"
+                                   % type(self.__input_nodes[input_port]))
+        if not rval:
             assert len(self.__input_nodes[input_port].__ignoring_output_records) > src_self_oport
             self.__input_nodes[input_port].__ignoring_output_records[src_self_oport] = num_recs
         
@@ -756,4 +760,230 @@ class CompositeDataflowNode(DataflowNode):
                                for o in unvisited_nodes])
                     + ")\n")
             raise BadGraphConfig(msg)
+
+### Derived classes
+
+class SplitDFN(SingleDataflowNode):
+    """DFN to split a single input stream into multiple output
+    streams."""
+    def __init__(self, num_outputs):
+        SingleDataflowNode.__init__(self, num_output_ports=num_outputs)
+        self.__num_outputs = num_outputs
+        self.__skip_records = [0,] * num_outputs
+        self.__broken_pipes = 0
+
+    def input_(self, input_port, rec):
+        # assert input_port == 0
+        for i in range(self.__num_outputs):
+            if self.__skip_records[i]:
+                if self.__skip_records[i] > 0:
+                    self.__skip_records[i]--
+            else:
+                self._output(i, rec)
+
+    def eos_(self, input_port):
+        assert input_port == 0
+        self._done()            # Will result in downstream eoses.
+
+    def seekOutput_(self, num_recs, output_port):
+        self.__skip_records[output_port] = num_recs
+        if num_recs == -1:
+            self.__broken_pipes++
+        if self.__broken_pipes == len(self.__skip_records):
+            # Nothing more to do here
+            self.done()
+        minval = min([s for s in self.__skip_records if s >= 0])
+        if minval > 0:
+            self._ignoreInput(minval)
+            for i in range(len(self.__skip_records)):
+                if self.__skip_records[i] > 0:
+                    self.__skip_records[i] -= minval
+        return True
+
+    # No need to override execute_ or initialize_
+                                    
+class FilterDFN(SingleDataflowNode):
+    """DFN to transform each record through a passed function."""
+    def __init__(self, filter_func):
+        SingleDataflowNode.__init__(self)
+        self.__filter_func = filter_func
+
+    def input_(self, input_port, rec):
+        self._output(0, self.__filter_Func(rec))
+
+    def eos_(self, input_port):
+        assert input_port == 0
+        self._done()
+
+    def seekOutput_(self, num_recs, output_port):
+        assert output_port == 0
+        if num_recs == -1:
+            self._done()
+        else:
+            self._ignoreInput(num_recs)
+        return True
+
+class SinkDFN(SingleDataflowNode):
+    """DFN to pass each record to a function."""
+    def __init__(self, sink_func):
+        SingleDataflowNode.__init__(self, num_outputs=0)
+        self.__sink_func = sink_func
+
+    def input_(self, input_port, rec):
+        self.__sink_func(rec)
+
+class WindowDFN(SingleDataflowNode):
+    """DFN to extract a specific window of records."""
+    def __init__(self, first_record=0, last_record=-1):
+        SingleDataflowNode.__init__(self)
+        self.__interval = (first_record, last_record)
+        self.__next_record = 0
+
+    def initialize_(self):
+        self.__checkSeek()
+
+    def input_(self, input_port, rec):
+        self._output(0, rec)
+        self.__next_record++
+        self.__checkSeek()
+
+    def eos_(self, input_port):
+        assert input_port == 0
+        self._done()
+
+    def seekOutput_(self, num_recs, output_port):
+        if num_recs == -1 or self.__next_record + num_recs >= self.__interval[1]:
+            self._done()
+        else:
+            self._ignoreInput(num_recs)
+            self.__next_record += num_recs
+        return True
+
+    def __checkSeek(self):
+        if self.__interval[0] > self.__next_record:
+            self.__ignoreInput(self.__interval[0] - self.__next_record)
+            self.__next_record = self.__interval[0]
+        if self.__interval[1] <= self.__next_record:
+            self.done()
+
+
+class BatchDFN(SingleDataflowNode):
+    """Batch up some number of incoming records (which may be all of
+    them if a -1 is provided as argument) and combine them into a
+    single record sent downstream.  Note that this record will be a
+    list of all incoming records; no python type-level manipulation is
+    attempted."""
+    def __init__(self, batch_size=-1):
+        SingleDataflowNode.__init__(self)
+        self.__batch_size = batch_size
+        self.__buffer = []
+
+    def input_(self, input_port, rec):
+        if len(self.__buffer) == self.__batch_size:
+            self._output(0, self.__buffer)
+            self.__buffer = []
+        self.__buffer.append(rec)
+
+    def eos_(self, input_port):
+        self._output(0, self.__buffer)
+        self._done()
+
+    def seekOutput_(self, num_recs, output_port):
+        # If I'm buffering infinitely and someone's asked me to
+        # skip any records, I'm done
+        if num_recs == -1:
+            self._done()
+        else:
+            input_recs_to_skip = num_recs * self.__batch_size
+            self._ignoreInput(input_recs_to_skip - len(self.__buffer))
+            self.__buffer = []
+        return True
+
+class SerialMergeDFN(SingleDataflowNode):
+    """Merge incoming streams serially; i.e. everything on stream 0
+    will be sent before anything on stream one is sent, and etc."""
+    def __init__(self, num_inputs):
+        SingleDataflowNode.__init__(num_input_ports=num_inputs)
+        self.__num_inputs = num_inputs
+        self.__buffers = [[],] * num_inputs
+        self.__eos_seen = [False,] * num_inputs
+        self.__next_stream_to_output = 0
+        
+    def input_(self, input_port, rec):
+        self._buffers[input_port].append(rec)
+
+    def eos_(self, input_port):
+        self.__eos_seen[input_port] = True
+        while (self.__next_stream_to_output < self.__num_inputs
+               and self.__eos_seen[self.__next_stream_to_output]):
+            for rec in self.__buffers[self.__next_stream_to_output]:
+                self._output(0, rec)
+            self.__next_stream_to_output++
+        if self.__next_stream_to_output >= self.__num_inputs:
+            self._done()
+
+    def seekOutput_(self, num_recs, output_port):
+        # Can only usefully handle this in the shutdown case, as we don't
+        # know where the boundaries between records are.
+        if num_recs == -1:
+            self.done_()
+            return True
+        return False
+
+class FileLineSourceDFN(SingleDataflowNode):
+    """Dump all the lines from a source file out the output, with each
+    record being a single line."""
+    def __init__(self, filename):
+        SingleDataflowNode.__init__(num_input_ports=0)
+        self.__filename = filename
+
+    def initialize_(self):
+        self.__file = open(self.__filename)
+
+    def execute_(self, num_recs):
+        # Note that the for loop iterator and .next() use the same
+        # buffering scheme, so this should work even if we start out
+        # with a positive num_recs and shift to -1
+        if num_recs == -1:
+            for l in self.__file:
+                self._output(0, l)
+            self._done()
+        else:
+            try:
+                while num_recs:
+                    self._output(0, self.__file.next())
+                    num_recs--
+            except StopIteration:
+                self._done()
+
+    def seekOutput_(self, num_recs, output_port):
+        # Can only usefully handle this in the shutdown case, as we don't
+        # know where the boundaries between records are in the file
+        if num_recs == -1:
+            self.done_()
+            return True
+        return False
+
+class FileWriteDFN(SingleDataflowNode):
+    """Write all incoming records into a file; note that the records
+    must be strings."""
+    def __init__(self, filename):
+        SingleDataflowNode.__init__(num_output_ports=0)
+        self.__filename = filename
+
+    def initialize_(self):
+        self.__file = open(self.__filename, "w")
+
+    def input_(self, input_port, rec):
+        self.__file(rec)
+
+    def eos_(self, input_port=0):
+        self.__file.close()
+        self._done()
+        
+# Functions to consider implementing: __init__, input_(iport,rec), eos_(iport*),
+# seekOutput_(nr,oport), execute_(nr), initialize_()
+
+class ByteWindowDFN(SingleDataflowNode):
+    pass
 
