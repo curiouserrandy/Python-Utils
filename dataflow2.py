@@ -3,6 +3,7 @@
 import pdb
 import copy
 import sys
+import os
 
 ###		Dataflow Programming Library
 
@@ -1030,41 +1031,68 @@ class SerialMergeDFN(SingleDataflowNode):
             return True
         return False
 
-class FileLineSourceDFN(SingleDataflowNode):
-    """Dump all the lines from a source file out the output, with each
-    record being a single line."""
-    def __init__(self, filename):
+class FileSourceDFN(SingleDataflowNode):
+    """Dump all the lines from a source file out the output.  NOTE that
+    this is done with individual records as bytes (but using batch output,
+    so it doesn't have to be a performance travesty downstream if
+    batchInput_ is overridden).  This allows intelligence responses
+    to ignoreInput() (i.e. seeking within the file.)."""
+    def __init__(self, filename, buffer_size=4096):
         SingleDataflowNode.__init__(self, num_input_ports=0)
         self.__filename = filename
+        self.__buffer_size = buffer_size
 
     def initialize_(self):
         self.__file = open(self.__filename)
 
     def execute_(self, num_recs):
-        # Note that the for loop iterator and .next() use the same
-        # buffering scheme, so this should work even if we start out
-        # with a positive num_recs and shift to -1
-        if num_recs == -1:
-            for l in self.__file:
-                self._output(0, l)
-            self._done()
-        else:
-            try:
-                while num_recs:
-                    self._output(0, self.__file.next())
-                    num_recs -= 1
-            except StopIteration:
+        while num_recs != 0:
+            file_block = self.__file.read(self.__buffer_size)
+            if not file_block:
+                # We're at EOF, therefore done.
                 self._done()
                 return False
-        return True
+            self._batchOutput(0, file_block)
+            if num_recs != -1:
+                num_recs -= 1
+            return True
 
     def seekOutput_(self, num_recs, output_port):
         # Can only usefully handle this in the shutdown case, as we don't
         # know where the boundaries between records are in the file
         if num_recs == -1:
             self.done_()
-            return True
-        return False
+        else:
+            self.__file.seek(num_recs, os.SEEK_CUR)
+        return True
+
+class StringNewlineBatchDFN(SingleDataflowNode):
+    """Take an incoming stream of characters and turn it into records
+    at newline boundaries.  The most obvious use is with FileSourceDFN."""
+    def __init__(self):
+        SingleDataflowNode.__init__(self)
+        self.__partial_lins = ""
+
+    def input_(self, input_port, rec):
+        self.__partial_line += rec
+        if rec == "\n":
+            self._output(0, self.__partial_line)
+            self.__partial_line = ""
+
+    def batchInput_(self, input_port, recs):
+        self.__partial_line += recs # Char and sequence of char are both strings
+        orecs = self.__partial_line.splitlines(True)
+        if orecs[-1][-1] != "\n":
+            # Last entry isn't a full line
+            self.__partial_line = orecs[-1]
+            orecs = orecs[:-1]
+        self._batchOutput(0, orecs)
+        return True
+
+    def eos_(self, input_port):
+        if self.__partial_line:
+            self._output(0, self.__partial_line)
+            self._done()
 
 class FileWriteDFN(SingleDataflowNode):
     """Write all incoming records into a file; note that the records
