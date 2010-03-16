@@ -328,9 +328,9 @@ class SingleDataflowNode(DataflowNode):
     def _ignoreInput(self, num_recs=-1, input_port=0):
         """Request that the given number of records be skipped on this
         port.  NUM_RECS == -1 indicates that all records may be skipped."""
-        if not isinstance(num_recs, int) or num_rec < -1:
+        if not isinstance(num_recs, int) or num_recs < -1:
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid num_recs value %s" % num_recs
-        if not 0 < input_port < self.numInputPorts():
+        if not 0 <= input_port < self.numInputPorts():
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid input_port value %d" % input_port
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
         rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
@@ -373,10 +373,8 @@ class SingleDataflowNode(DataflowNode):
             )
         assert res is not None
         if not res:
-            dnode = self.__output_nodes[output_port]
-            dport = self.__output_node_iports[output_port]
             for r in recs:
-                dnode.input_(dport, r)
+                self._output(output_port, r)
 
     ### Stubs of functions that derived classes may choose to implement
     def input_(self, input_port, rec):
@@ -838,7 +836,9 @@ ort
         nodes = set(range(len(self.__contained_nodes)))
         if len(nodes) == 1: return
 
-        links = self.internalLinks()
+        # Get a list of links (skipping ports; unneeded for this algorithm)
+        links = [(s[0], d[0]) for (s, d) in self.internalLinks()]
+
         visited_nodes = set(links.pop()) # Starts with two nodes
         old_num_visited_nodes = -1
         while old_num_visited_nodes != len(visited_nodes):
@@ -909,7 +909,7 @@ class SplitDFN(SingleDataflowNode):
             self.__broken_pipes += 1
         if self.__broken_pipes == len(self.__skip_records):
             # Nothing more to do here
-            self.done()
+            self._done()
         minval = min([s for s in self.__skip_records if s >= 0])
         if minval > 0:
             self._ignoreInput(minval)
@@ -988,7 +988,7 @@ class WindowDFN(SingleDataflowNode):
             self._ignoreInput(self.__interval[0] - self.__next_record)
             self.__next_record = self.__interval[0]
         if self.__interval[1] <= self.__next_record:
-            self.done()
+            self._done()
 
 
 class BatchDFN(SingleDataflowNode):
@@ -1034,7 +1034,7 @@ class SerialMergeDFN(SingleDataflowNode):
         self.__next_stream_to_output = 0
         
     def input_(self, input_port, rec):
-        self._buffers[input_port].append(rec)
+        self.__buffers[input_port].append(rec)
 
     def eos_(self, input_port):
         self.__eos_seen[input_port] = True
@@ -1050,7 +1050,7 @@ class SerialMergeDFN(SingleDataflowNode):
         # Can only usefully handle this in the shutdown case, as we don't
         # know where the boundaries between records are.
         if num_recs == -1:
-            self.done_()
+            self._done()
             return True
         return False
 
@@ -1084,7 +1084,7 @@ class FileSourceDFN(SingleDataflowNode):
         # Can only usefully handle this in the shutdown case, as we don't
         # know where the boundaries between records are in the file
         if num_recs == -1:
-            self.done_()
+            self._done()
         else:
             self.__file.seek(num_recs, os.SEEK_CUR)
         return True
@@ -1156,7 +1156,7 @@ class GenerateIntervalDFN(SingleDataflowNode):
 
 ## Testing
 def printRec(rec):
-    print rec
+    print rec,
 
 def test1(arg1, argr):
     g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
