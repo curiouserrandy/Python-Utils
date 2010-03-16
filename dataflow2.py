@@ -296,7 +296,7 @@ class SingleDataflowNode(DataflowNode):
                        "_SingleDataflowNode__output_node_iports",
                        "_SingleDataflowNode__ignoring_output_records"):
                 continue
-            res += ", " + att + ": " + self.__dict__[att]
+            res += ", " + att + ": " + str(self.__dict__[att])
         res += ">"
         return res
 
@@ -339,9 +339,9 @@ class SingleDataflowNode(DataflowNode):
     def _done(self):
         """Signal that this node has completed all its processing."""
         for i in range(self.__num_input_ports):
-            self.ignoreInput(input_port=i)
+            self._ignoreInput(input_port=i)
         for i in range(self.__num_output_ports):
-            self.signalEos(i)
+            self._signalEos(i)
 
     def _output(self, output_port, rec):
         """Output a record on the specified port for the next node."""
@@ -389,7 +389,10 @@ class SingleDataflowNode(DataflowNode):
         should do) before returning.  If NUM_RECS is -1, an arbitrary
         amount of processing may be done.  False should be returned if this
         routine does not need to be called again, True if there is more
-        processing for the node to do."""
+        processing for the node to do.  REMEMBER TO RETURN TRUE IF MORE
+        PROCESSING IS NEEDED.  If a function doesn't have a return
+        statement, it will return None, which will be interpretted as
+        False.  """
         return False
 
     def initialize_(self):
@@ -756,10 +759,11 @@ ort
         
         # Repeatedly prune link list of references to nodes that have no
         # inputs
-        while last_num_links != len(links):
+        while len(links) != 0 and last_num_links != len(links):
             last_num_links = len(links)
             dest_nodes = set(zip(*links)[1])
-            links = [l for l in links if l[0] in dest_nodes or l[1] in dest_nodes]
+            # We don't want the link if the source has no inputs
+            links = [l for l in links if l[0] in dest_nodes]
 
         if len(links) != 0:
             # We have a loser!
@@ -920,7 +924,7 @@ class WindowDFN(SingleDataflowNode):
 
     def __checkSeek(self):
         if self.__interval[0] > self.__next_record:
-            self.__ignoreInput(self.__interval[0] - self.__next_record)
+            self._ignoreInput(self.__interval[0] - self.__next_record)
             self.__next_record = self.__interval[0]
         if self.__interval[1] <= self.__next_record:
             self.done()
@@ -1014,6 +1018,8 @@ class FileLineSourceDFN(SingleDataflowNode):
                     num_recs -= 1
             except StopIteration:
                 self._done()
+                return False
+        return True
 
     def seekOutput_(self, num_recs, output_port):
         # Can only usefully handle this in the shutdown case, as we don't
@@ -1049,17 +1055,16 @@ class GenerateIntervalDFN(SingleDataflowNode):
         def gfunc():
             for i in range(*interval_tuple):
                 yield i
-        self.__gfunc = gfunc
+        self.__iter = gfunc()
     def execute_(self, num_recs):
         try:
             while num_recs != 0:
-                self._output(self.__gfunc())
+                self._output(0, self.__iter.next())
                 if num_recs != -1: num_recs -= 1
         except StopIteration:
             self._done()
-
-# Functions to consider implementing: __init__, input_(iport,rec), eos_(iport*),
-# seekOutput_(nr,oport), execute_(nr), initialize_()
+            return False
+        return True
 
 class ByteWindowDFN(SingleDataflowNode):
     pass
