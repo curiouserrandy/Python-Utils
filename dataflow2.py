@@ -282,6 +282,24 @@ class SingleDataflowNode(DataflowNode):
         copy_node.__initConnections() # Nuke any links; they're incorrect now.
         return copy_node
 
+    def __str__(self):
+        """Produce a printable representation of the object, not
+        necessarily one that eval() can accept."""
+        res = "<" + self.__class__.__name__ + " (%d, %d) " % (self.numInputPorts(),
+                                                              self.numOutputPorts())
+        for att in self.__dict__:
+            # Ignore base class attributes
+            if att in ("_SingleDataflowNode__num_input_ports",
+                       "_SingleDataflowNode__num_output_ports",
+                       "_SingleDataflowNode__input_nodes",
+                       "_SingleDataflowNode__output_nodes",
+                       "_SingleDataflowNode__output_node_iports",
+                       "_SingleDataflowNode__ignoring_output_records"):
+                continue
+            res += ", " + att + ": " + self.__dict__[att]
+        res += ">"
+        return res
+
     ### "Protected" interface (for use of derived classes
     def __init__(self, num_input_ports=1, num_output_ports=1):
         """Initialize the base class, specifying the number of input
@@ -632,6 +650,19 @@ ort
 
         self.addNode(node, eParallel)
 
+    def __str__(self):
+        """Produce a printable representation of the object, not
+        necessarily one that eval() can accept.  Much more complicated
+        than users will want--for debugging."""
+        res = "<CompositeDataflowNode (%d, %d): " % (self.numInputPorts(),
+                                                   self.numOutputPorts())
+        res += "["
+        for i,node in enumerate(self.__contained_nodes):
+            res += str(node)
+            if i != 0: res += ", "
+        res += "] " + str(self.internalLinks()) + ">"
+        return res
+
     # Protected (null; this is a final class not intended for inheritance).
 
     # Private
@@ -742,7 +773,7 @@ ort
             nodes = nodes[0] + nodes[1] # Flatten
             nodes = dict.fromkeys(nodes).keys() # Uniquify
             msg = "Cycle detected among DataflowNodes: ("
-            msg += ", ".join([self.__contained_nodes[n].repr() for n in nodes])
+            msg += ", ".join([str(self.__contained_nodes[n]) for n in nodes])
             msg += ")"
             raise BadGraphConfig, msg
 
@@ -772,11 +803,11 @@ ort
 
             msg = "Disjoint sets of nodes found.  \n"
             msg += ("First set: (" +
-                    ", ".join([self.__contained_nodes[o].repr()
+                    ", ".join([str(self.__contained_nodes[o])
                                for o in visited_nodes])
                     + ")\n")
             msg += ("First set: (" +
-                    ", ".join([self.__contained_nodes[o].repr()
+                    ", ".join([str(self.__contained_nodes[o])
                                for o in unvisited_nodes])
                     + ")\n")
             raise BadGraphConfig, msg
