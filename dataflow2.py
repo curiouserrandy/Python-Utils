@@ -262,8 +262,6 @@ In C++ this would be an abstract base class, in Java an interface."""
             raise BadInputArguments("Argument to DataflowNode & operator (%s) is not a DataflowNode." % node)
         return CompositeDataflowNode((self, node), eParallel)
 
-
-
 class SingleDataflowNode(DataflowNode):
     ### Public methods
     def numInputPorts(self):
@@ -287,6 +285,8 @@ class SingleDataflowNode(DataflowNode):
     def __init__(self, num_input_ports=1, num_output_ports=1):
         """Initialize the base class, specifying the number of input
         and output ports."""
+        if num_input_ports < 0 || num_output_ports < 0:
+            raise BadInputArguments("Arguments to SingleDataflowNode constructor (%d,%d) includes negative number." % (num_input_ports, num_output_ports))
         self.__num_input_ports = num_input_ports
         self.__num_output_ports = num_output_ports
 
@@ -295,7 +295,8 @@ class SingleDataflowNode(DataflowNode):
         
     def _signalEos(self, output_port=0):
         """Signal that no more records will be transmitted on this port."""
-        assert self.__output_nodes[output_port]
+        if not 0 <= output_port < self.numOutputPorts():
+            raise BadInputArguments("SingleDataflowNode._signalEos: output_port (%d) out of range [0, %d]" % (output_port, numOutputPorts()))
         dest_self_iport = self.__output_nodes[output_port].__input_nodes.index(self)
         self.__output_nodes[output_port].eos_(dest_self_iport)
         self.__output_nodes[output_port] = None
@@ -303,7 +304,10 @@ class SingleDataflowNode(DataflowNode):
     def _ignoreInput(self, num_recs=-1, input_port=0):
         """Request that the given number of records be skipped on this
         port.  NUM_RECS == -1 indicates that all records may be skipped."""
-        assert self.__input_nodes[input_port]
+        if not isinstance(num_recs, int) or num_rec < -1:
+            raise BadInputArguments("SingleDataflowNode._ignoreInput: Invalid num_recs value %s" % num_recs)
+        if not 0 < input_port < self.numInputPorts():
+            raise BadInputArguments("SingleDataflowNode._ignoreInput: Invalid input_port value %d" % input_port)
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
         rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
         if rval is None:
@@ -322,7 +326,8 @@ class SingleDataflowNode(DataflowNode):
 
     def _output(self, output_port, rec):
         """Output a record on the specified port for the next node."""
-        assert self.__output_nodes[output_port] # Skip for performance?
+        # Not doing interface checking for performance; this function
+        # is called repeatedly
         if self.__ignoring_output_records[output_port] != 0:
             self.__ignoring_output_records[output_port]--
         else:
@@ -429,6 +434,9 @@ class CompositeDataflowNode(DataflowNode):
             checkArgIsNode(args[0], "First argument to composite node constructor");
             self.__initFromSingleton(self, args[0])
         else:
+            for n in args[0]:
+                checkArgIsNode(n, "Element of first argument to composite node constructor")
+            checkLinksArg(args[1], args[0], "CompositeDataflowNode constructor")
             self.__initFromList(*args)
 
     def addNode(self, node, links=eSerial):
@@ -465,7 +473,15 @@ class CompositeDataflowNode(DataflowNode):
         self.makeInternalLinks(*zip(*oiport))
 
     def makeInternalLinks(self, output_ports, input_ports):
-        # For creating links within already existing graphs; i.e. merges
+        """Link output to input ports within a single (composite) operator."""
+        for oport in output_ports:
+            if not 0 <= oport < self.numOutputPorts():
+                raise BadInputArguments("CompositeDataflowNode.makeInternalLinks: Specified output port (%d) out of range for this node" % oport)
+        for iport in input_ports:
+            if not 0 <= iport < self.numInputPorts():
+                raise BadInputArguments("CompositeDataflowNode.makeInternalLinks: Specified input port (%d) out of range for this node" % iport)
+        if len(output_ports) != len(input_ports):
+            raise BadInputArguments("CompositeDataflowNode.makeInternalLinks: Different size arrays passed for output and input ports")
 
         # Get the descriptors without removing them since that would change
         # the mapping for future descriptors
@@ -601,11 +617,17 @@ class CompositeDataflowNode(DataflowNode):
         """Link the argument node into this one, attaching all outputs of
         this node to all inputs of the argument node.
         A copy is made of the argument node, but this node is modified."""
+
+        # Argument validation done by callee
+
         self.addNode(node, eSerial)
     def __ior__(self, node):
         """Link the argument node into this one, exposing all inputs
         and outputs of both nodes in the resulting node.
         A copy is made of the argument node, but this node is modified."""
+
+        # Argument validation done by callee
+
         self.addNode(node, eParallel)
 
     # Protected (null; this is a final class not intended for inheritance).
@@ -613,6 +635,9 @@ class CompositeDataflowNode(DataflowNode):
     # Private
     def __initFromSingleton(self, node):
         """Make self a copy of node."""
+
+        # Args validated in caller
+
         node = node.copy()
         if isinstance(node, CompositeDataflowNode):
             self.__contained_nodes = node.__contained_nodes
@@ -635,14 +660,7 @@ class CompositeDataflowNode(DataflowNode):
         presented by the composite node (in the order passed) and the
         same will be true for the output links.  """
 
-        # Validate nodes
-        for n in nodes:
-            if not isinstance(node, DataflowNode):
-                raise BadInputArguments(
-                    "Argument NODES to CompositeDataflowNode constructor contains invalid node %s" % node)
-
-        # Validate link list
-        checkLinksArg(links, nodes, "CompositeDataflowNode(nodes, links) constructor")
+        # Args validated in caller
 
         # Create a real link list from symbolic args
         if links==eParallel:
@@ -767,13 +785,15 @@ class SplitDFN(SingleDataflowNode):
     """DFN to split a single input stream into multiple output
     streams."""
     def __init__(self, num_outputs):
+        if num_outputs < 0:
+            raise BadInputArguments("SplitDFN constructor: num_outputs invalid (%d)"
+                                    % num_outputs)
         SingleDataflowNode.__init__(self, num_output_ports=num_outputs)
         self.__num_outputs = num_outputs
         self.__skip_records = [0,] * num_outputs
         self.__broken_pipes = 0
 
     def input_(self, input_port, rec):
-        # assert input_port == 0
         for i in range(self.__num_outputs):
             if self.__skip_records[i]:
                 if self.__skip_records[i] > 0:
@@ -833,10 +853,16 @@ class SinkDFN(SingleDataflowNode):
         self.__sink_func(rec)
 
 class WindowDFN(SingleDataflowNode):
-    """DFN to extract a specific window of records."""
-    def __init__(self, first_record=0, last_record=-1):
+    """DFN to extract a specific window of records.  The constructor takes
+    two arguments, which are the first to pass on and the first record
+    to ignore (i.e. it's a half open interval).  These arguments can be
+    specified via named arguments WINDOW_START and WINDOW_END.  If WINDOW_END 
+    is -1, that indicates no end to the window."""
+    def __init__(self, window_start=0, window_end=-1):
+        if window_start < 0 or window_end < -1:
+            raise BadInputArguments("WindowDFN constructor: Argument invalid (window_start = %d, window_end = %d)" % (window_start, window_end))
         SingleDataflowNode.__init__(self)
-        self.__interval = (first_record, last_record)
+        self.__interval = (window_start, window_end)
         self.__next_record = 0
 
     def initialize_(self):
