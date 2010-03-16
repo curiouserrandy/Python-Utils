@@ -176,6 +176,9 @@ import os
 # * Record (data flowing between nodes): "rec"
 # * Link (two element tuple: (sport_descr, dport_descr)): "link" or
 #   "l" in tight for loops.
+# * Internal link (two element tuple: (sport, dport) used for
+#   describing links inside of a composite operator in terms of the
+#   port space of that operator): "intlink"
 # * List of any obove objects: Suffix "s"
 # * Size of a list of any above objects: num_<obj>s
 
@@ -525,30 +528,33 @@ class CompositeDataflowNode(DataflowNode):
         self.__addNodeNoLinks(node)
 
         # Execute the links 
-        oiports = [(l[0][1] if l[0][0] == 0 else l[0][1] + oport_offset,
-                    l[1][1] if l[1][0] == 0 else l[1][1] + iport_offset)
-                   for l in links]
-        # Transpose the above array into (oports, iports) and pass
-        # that list as the args list to makeInternalLinks
-        self.makeInternalLinks(*zip(*oiport))
+        intlinks = [(l[0][1] if l[0][0] == 0 else l[0][1] + oport_offset,
+                     l[1][1] if l[1][0] == 0 else l[1][1] + iport_offset)
+                    for l in links]
+        self.makeInternalLinks(intlinks)
 
-    def makeInternalLinks(self, output_ports, input_ports):
-        """Link output to input ports within a single (composite) operator."""
-        for oport in output_ports:
-            if not 0 <= oport < self.numOutputPorts():
-                raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Specified output port (%d) out of range for this node" % oport
-        for iport in input_ports:
-            if not 0 <= iport < self.numInputPorts():
-                raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Specified input port (%d) out of range for this node" % iport
-        if len(output_ports) != len(input_ports):
-            raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Different size arrays passed for output and input ports"
+    def makeInternalLinks(self, intlinks):
+        """Link output ports to input ports within a single
+        (composite) operator."""
+        for intlink in intlinks:
+            if not 0 <= intlink[0] < self.numOutputPorts():
+                raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Specified output port (%d) out of range for this node" % intlink[0]
+            if not 0 <= intlink[1] < self.numInputPorts():
+                raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Specified input port (%d) out of range for this node" % intlink[1]
+
+        # If there aren't any links, return; simplifies processing below
+        if len(intlinks) == 0:
+            return
+
+        # Separate out the output and input ports
+        output_ports, input_ports = zip(*intlinks)
 
         # Get the descriptors without removing them since that would change
         # the mapping for future descriptors
-        oport_descrs = [self.__output_port_descrs[port]
-                        for port in output_ports]
-        iport_descrs = [self.__input_port_descrs[port]
-                        for port in input_ports]
+        oport_descrs = [self.__output_port_descrs[oport]
+                        for oport in output_ports]
+        iport_descrs = [self.__input_port_descrs[iport]
+                        for iport in input_ports]
 
         # Remove those ports from the list; they're about to be used up
         self.__output_port_descrs = [self.__output_port_descrs[i]
@@ -769,7 +775,7 @@ ort
         intlinks = [(l[0][1] + port_descr_oport_offsets[l[0][0]],
                      l[1][1] + port_descr_iport_offsets[l[1][0]])
                     for l in links]
-        self.makeInternalLinks(*zip(*intlinks))
+        self.makeInternalLinks(intlinks)
 
     def __addNodeNoLinks(self, node):
         """Add NODE to self, making no links between them.  Input and
