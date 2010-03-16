@@ -311,6 +311,7 @@ class SingleDataflowNode(DataflowNode):
         and output ports."""
         if num_input_ports < 0 or num_output_ports < 0:
             raise BadInputArguments, "Arguments to SingleDataflowNode constructor (%d,%d) includes negative number." % (num_input_ports, num_output_ports)
+        self.__active = True
         self.__num_input_ports = num_input_ports
         self.__num_output_ports = num_output_ports
 
@@ -319,6 +320,7 @@ class SingleDataflowNode(DataflowNode):
         
     def _signalEos(self, output_port=0):
         """Signal that no more records will be transmitted on this port."""
+        print "SingleDataflowNode._signalEos() called for object ", self
         if not 0 <= output_port < self.numOutputPorts():
             raise BadInputArguments, "SingleDataflowNode._signalEos: output_port (%d) out of range [0, %d]" % (output_port, numOutputPorts())
         dest_self_iport = self.__output_nodes[output_port].__input_nodes.index(self)
@@ -328,10 +330,16 @@ class SingleDataflowNode(DataflowNode):
     def _ignoreInput(self, num_recs=-1, input_port=0):
         """Request that the given number of records be skipped on this
         port.  NUM_RECS == -1 indicates that all records may be skipped."""
+        print "SingleDataflowNode._ignoreInput() called for object ", self
         if not isinstance(num_recs, int) or num_recs < -1:
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid num_recs value %s" % num_recs
         if not 0 <= input_port < self.numInputPorts():
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid input_port value %d" % input_port
+        src_node = self.__input_nodes[input_port]
+        if not src_node.__active:
+            # We'll never see input from this guy again
+            return
+
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
         rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
         if rval is None:
@@ -343,10 +351,13 @@ class SingleDataflowNode(DataflowNode):
         
     def _done(self):
         """Signal that this node has completed all its processing."""
-        for i in range(self.__num_input_ports):
-            self._ignoreInput(input_port=i)
-        for i in range(self.__num_output_ports):
-            self._signalEos(i)
+        print "SingleDataflowNode._done() called for object ", self
+        if self.__active:
+            self.__active = False
+            for i in range(self.__num_input_ports):
+                self._ignoreInput(input_port=i)
+            for i in range(self.__num_output_ports):
+                self._signalEos(i)
 
     def _output(self, output_port, rec):
         """Output a record on the specified port for the next node."""
@@ -356,6 +367,7 @@ class SingleDataflowNode(DataflowNode):
             if self.__ignoring_output_records[output_port] != -1:
                 self.__ignoring_output_records[output_port] -= 1
         else:
+            assert self.__output_nodes[output_port].__active
             self.__output_nodes[output_port].input_(self.__output_node_iports[output_port], rec)
 
     def _batchOutput(self, output_port, recs):
@@ -889,13 +901,20 @@ class SplitDFN(SingleDataflowNode):
     def batchInput_(self, input_port, recs):
         for i in range(self.__num_outputs):
             # -1 case
-            if self.__skip_records[i] < 0: continue
+            if self.__skip_records[i] < 0:
+                continue
+
             # More records to skip than we have case
             if self.__skip_records[i] >= len(recs):
                 self.__skip_records[i] -= len(recs)
                 continue
+
             # Fewer records to skip (possibly zero) than we have case
-            self._batchOutput(i, recs[self.__skip_records[i]:])
+            try:
+                self._batchOutput(i, recs[self.__skip_records[i]:])
+            except:
+                pdb.set_trace()
+                raise
             self.__skip_records[i] = 0
         return True
 
@@ -904,6 +923,7 @@ class SplitDFN(SingleDataflowNode):
         self._done()            # Will result in downstream eoses.
 
     def seekOutput_(self, num_recs, output_port):
+        print "SplitDFN.seekOutput_(%d, %d) called" % (num_recs, output_port)
         self.__skip_records[output_port] = num_recs
         if num_recs == -1:
             self.__broken_pipes += 1
@@ -1029,7 +1049,7 @@ class SerialMergeDFN(SingleDataflowNode):
     def __init__(self, num_inputs):
         SingleDataflowNode.__init__(self, num_input_ports=num_inputs)
         self.__num_inputs = num_inputs
-        self.__buffers = [[],] * num_inputs
+        self.__buffers = [[] for i in range(num_inputs)]
         self.__eos_seen = [False,] * num_inputs
         self.__next_stream_to_output = 0
         
@@ -1037,11 +1057,13 @@ class SerialMergeDFN(SingleDataflowNode):
         self.__buffers[input_port].append(rec)
 
     def eos_(self, input_port):
+        assert not self.__eos_seen[input_port]
         self.__eos_seen[input_port] = True
         while (self.__next_stream_to_output < self.__num_inputs
                and self.__eos_seen[self.__next_stream_to_output]):
             for rec in self.__buffers[self.__next_stream_to_output]:
                 self._output(0, rec)
+            self.__buffers[self.__next_stream_to_output] = []
             self.__next_stream_to_output += 1
         if self.__next_stream_to_output >= self.__num_inputs:
             self._done()
