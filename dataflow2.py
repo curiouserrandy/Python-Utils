@@ -187,7 +187,6 @@ __all__ = (
 
 # Exceptions used by module
 class BadInputArguments(Exception): pass
-class NotImplemented(Exception): pass
 class BadGraphConfig(Exception): pass
 
 # Enums used in module class interfaces
@@ -198,7 +197,7 @@ eParallel = 2
 def checkArgIsNode(node, arg_descript):
     """Confirm arg NODE is either a node, or a (node, port) tuple."""
     if not isinstance(node, DataflowNode):
-        raise BadInputArguments("%s isn't DataflowNode" % arg_descript)
+        raise BadInputArguments, "%s isn't DataflowNode" % arg_descript
 
 def checkLinksArg(links, nodes, method_name):
     """Confirm that the LINKS argument is valid in the context of the
@@ -208,21 +207,21 @@ def checkLinksArg(links, nodes, method_name):
     ports."""
     if not (links == eSerial or links == eParallel
             or isinstance(links, list)):
-        raise BadInputArguments("Args LINKS (%s) to method %s isn't eSerial, eParallel or a list." % (list, method_name))
+        raise BadInputArguments, "Args LINKS (%s) to method %s isn't eSerial, eParallel or a list." % (list, method_name)
     if isinstance(links, list):
         for l in links:
             if not (0 <= l[0][0] < range(len(nodes))
                     and 0 <= l[1][0] < range(len(nodes))):
-                raise BadInputArguments("Link %s in arg LINKS to method %s contains a reference to an out of bounds node." % (l, method_name))
+                raise BadInputArguments, "Link %s in arg LINKS to method %s contains a reference to an out of bounds node." % (l, method_name)
             if not 0 <= l[0][1] < nodes[l[0][0]].numOutputPorts():
-                raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range output port (%d)." % (l, method_name, l[0][1]))
+                raise BadInputArguments, "Link %s in arg LINKS to method %s contains an out of range output port (%d)." % (l, method_name, l[0][1])
             if not 0 <= l[1][1] < nodes[l[1][0]].numInputPorts():
-                raise BadInputArguments("Link %s in arg LINKS to method %s contains an out of range input port (%d)." % (l, method_name, l[1][1]))
+                raise BadInputArguments "Link %s in arg LINKS to method %s contains an out of range input port (%d)." % (l, method_name, l[1][1])
 
     if links == eSerial:
         for i in range(len(nodes)-1):
             if nodes[i].numOutputPorts() != nodes[i+1].numInputPorts():
-                raise BadInputArguments("Method %s called with eSerial and non-matching numbers of output (%d) and input (%d) ports on nodes %d, %d." % (method_name, nodes[i].numOutputPorts(), nodes[i+1].numInputPorts(), i, i+1))
+                raise BadInputArguments, "Method %s called with eSerial and non-matching numbers of output (%d) and input (%d) ports on nodes %d, %d." % (method_name, nodes[i].numOutputPorts(), nodes[i+1].numInputPorts(), i, i+1)
 
 
 class DataflowNode(object):
@@ -233,12 +232,12 @@ In C++ this would be an abstract base class, in Java an interface."""
         """Return the number of input ports that this node has
         available.  Defines the range of allowed input port indices that can
         be used in the context of this operator."""
-        raise NotImplemented("Method numInputPorts not overridden in inherited class.")
+        raise NotImplementedError, "Method numInputPorts not overridden in inherited class."
     def numOutputPorts(self):
         """Return the number of output ports that this node has
         available.  Defines the range of allowed output port indices that can
         be used in the context of this operator."""
-        raise NotImplemented("Method numOutputPorts not overridden in inherited class.")
+        raise NotImplementedError, "Method numOutputPorts not overridden in inherited class."
 
     def __and__(self, node):
         """Connect two dataflow nodes in series, with the outputs of the
@@ -246,7 +245,7 @@ In C++ this would be an abstract base class, in Java an interface."""
         As appropriate to the "&"& operator, this is a copy operator; it will
         not modify its arguments."""
         if not isinstance(node, DataflowNode):
-            raise BadInputArguments("Argument to DataflowNode & operator (%s) is not a DataflowNode." % node)
+            raise BadInputArguments, "Argument to DataflowNode & operator (%s) is not a DataflowNode." % node
         return CompositeDataflowNode((self, node), eSerial)
 
     def __or__(self, node):
@@ -259,7 +258,7 @@ In C++ this would be an abstract base class, in Java an interface."""
         this corresponds to a logical or operation, and piping corresponds to a
         logical and operation."""
         if not isinstance(node, DataflowNode):
-            raise BadInputArguments("Argument to DataflowNode & operator (%s) is not a DataflowNode." % node)
+            raise BadInputArguments, "Argument to DataflowNode & operator (%s) is not a DataflowNode." % node
         return CompositeDataflowNode((self, node), eParallel)
 
 class SingleDataflowNode(DataflowNode):
@@ -286,7 +285,7 @@ class SingleDataflowNode(DataflowNode):
         """Initialize the base class, specifying the number of input
         and output ports."""
         if num_input_ports < 0 || num_output_ports < 0:
-            raise BadInputArguments("Arguments to SingleDataflowNode constructor (%d,%d) includes negative number." % (num_input_ports, num_output_ports))
+            raise BadInputArguments, "Arguments to SingleDataflowNode constructor (%d,%d) includes negative number." % (num_input_ports, num_output_ports)
         self.__num_input_ports = num_input_ports
         self.__num_output_ports = num_output_ports
 
@@ -296,7 +295,7 @@ class SingleDataflowNode(DataflowNode):
     def _signalEos(self, output_port=0):
         """Signal that no more records will be transmitted on this port."""
         if not 0 <= output_port < self.numOutputPorts():
-            raise BadInputArguments("SingleDataflowNode._signalEos: output_port (%d) out of range [0, %d]" % (output_port, numOutputPorts()))
+            raise BadInputArguments, "SingleDataflowNode._signalEos: output_port (%d) out of range [0, %d]" % (output_port, numOutputPorts())
         dest_self_iport = self.__output_nodes[output_port].__input_nodes.index(self)
         self.__output_nodes[output_port].eos_(dest_self_iport)
         self.__output_nodes[output_port] = None
@@ -305,14 +304,14 @@ class SingleDataflowNode(DataflowNode):
         """Request that the given number of records be skipped on this
         port.  NUM_RECS == -1 indicates that all records may be skipped."""
         if not isinstance(num_recs, int) or num_rec < -1:
-            raise BadInputArguments("SingleDataflowNode._ignoreInput: Invalid num_recs value %s" % num_recs)
+            raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid num_recs value %s" % num_recs
         if not 0 < input_port < self.numInputPorts():
-            raise BadInputArguments("SingleDataflowNode._ignoreInput: Invalid input_port value %d" % input_port)
+            raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid input_port value %d" % input_port
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
         rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
         if rval is None:
-            raise BadInputArgument("%s.seekOutput_ function did not return a value"
-                                   % type(self.__input_nodes[input_port]))
+            raise BadInputArgument, "%s.seekOutput_ function did not return a value"
+                                   % type(self.__input_nodes[input_port])
         if not rval:
             assert len(self.__input_nodes[input_port].__ignoring_output_records) > src_self_oport
             self.__input_nodes[input_port].__ignoring_output_records[src_self_oport] = num_recs
@@ -336,7 +335,7 @@ class SingleDataflowNode(DataflowNode):
     ### Stubs of functions that derived classes may choose to implement
     def input_(self, input_port, rec):
         """Override to accept input from upstream nodes."""
-        raise NotImplemented("SingleDataflowNode.input_ method not implemented in derived class.")
+        raise NotImplementedError, "SingleDataflowNode.input_ method not implemented in derived class."
 
     def eos_(self, input_port):
         """Override if notification of end of stream (no further input
@@ -447,7 +446,7 @@ class CompositeDataflowNode(DataflowNode):
 
         # Validate arguments
         if not isinstance(node, DataflowNode):
-            raise BadInputArguments("Arg NODE (%s) to method CompositeDataflowNode.addNode isn't a DataflowNode" %s node)
+            raise BadInputArguments, "Arg NODE (%s) to method CompositeDataflowNode.addNode isn't a DataflowNode" %s node
 
         checkLinksArg(links, (self,node), "CompositeDataflowNode.addNode")
 
@@ -476,12 +475,12 @@ class CompositeDataflowNode(DataflowNode):
         """Link output to input ports within a single (composite) operator."""
         for oport in output_ports:
             if not 0 <= oport < self.numOutputPorts():
-                raise BadInputArguments("CompositeDataflowNode.makeInternalLinks: Specified output port (%d) out of range for this node" % oport)
+                raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Specified output port (%d) out of range for this node" % oport
         for iport in input_ports:
             if not 0 <= iport < self.numInputPorts():
-                raise BadInputArguments("CompositeDataflowNode.makeInternalLinks: Specified input port (%d) out of range for this node" % iport)
+                raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Specified input port (%d) out of range for this node" % iport
         if len(output_ports) != len(input_ports):
-            raise BadInputArguments("CompositeDataflowNode.makeInternalLinks: Different size arrays passed for output and input ports")
+            raise BadInputArguments, "CompositeDataflowNode.makeInternalLinks: Different size arrays passed for output and input ports"
 
         # Get the descriptors without removing them since that would change
         # the mapping for future descriptors
@@ -742,7 +741,7 @@ class CompositeDataflowNode(DataflowNode):
             msg = "Cycle detected among DataflowNodes: ("
             msg += ", ".join([self.__contained_nodes[n].repr() for n in nodes])
             msg += ")"
-            raise BadGraphConfig(msg)
+            raise BadGraphConfig, msg
 
     def __checkConnected(self):
         """Confirm self graph is not disjoint."""
@@ -777,7 +776,7 @@ class CompositeDataflowNode(DataflowNode):
                     ", ".join([self.__contained_nodes[o].repr()
                                for o in unvisited_nodes])
                     + ")\n")
-            raise BadGraphConfig(msg)
+            raise BadGraphConfig, msg
 
 ### Derived classes
 
@@ -786,8 +785,8 @@ class SplitDFN(SingleDataflowNode):
     streams."""
     def __init__(self, num_outputs):
         if num_outputs < 0:
-            raise BadInputArguments("SplitDFN constructor: num_outputs invalid (%d)"
-                                    % num_outputs)
+            raise BadInputArguments, "SplitDFN constructor: num_outputs invalid (%d)"
+                                    % num_outputs
         SingleDataflowNode.__init__(self, num_output_ports=num_outputs)
         self.__num_outputs = num_outputs
         self.__skip_records = [0,] * num_outputs
@@ -860,7 +859,7 @@ class WindowDFN(SingleDataflowNode):
     is -1, that indicates no end to the window."""
     def __init__(self, window_start=0, window_end=-1):
         if window_start < 0 or window_end < -1:
-            raise BadInputArguments("WindowDFN constructor: Argument invalid (window_start = %d, window_end = %d)" % (window_start, window_end))
+            raise BadInputArguments, "WindowDFN constructor: Argument invalid (window_start = %d, window_end = %d)" % (window_start, window_end)
         SingleDataflowNode.__init__(self)
         self.__interval = (window_start, window_end)
         self.__next_record = 0
