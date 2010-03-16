@@ -876,6 +876,19 @@ class SplitDFN(SingleDataflowNode):
             else:
                 self._output(i, rec)
 
+    def batchInput_(self, input_port, recs):
+        for i in range(self.__num_outputs):
+            # -1 case
+            if self.__skip_records[i] < 0: continue
+            # More records to skip than we have case
+            if self.__skip_records[i] >= len(recs):
+                self.__skip_records[i] -= len(recs)
+                continue
+            # Fewer records to skip (possibly zero) than we have case
+            self._batchOutput(i, recs[self.__skip_records[i]:])
+            self.__skip_records[i] = 0
+        return True
+
     def eos_(self, input_port):
         assert input_port == 0
         self._done()            # Will result in downstream eoses.
@@ -1138,6 +1151,13 @@ def printRec(rec):
 def test1(arg1, argr):
     g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
     g.run()
+
+mbox_file = /Users/randy/Projects/MailSys/Data/Recent/default.mbox
+crange = (80576595,80578821)
+lrange = 
+
+def complexWindowTest(arg1, argr):
+    
 
 test_function_mapping = {
     "simple_pipe" : test1
