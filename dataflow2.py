@@ -1152,15 +1152,20 @@ def test1(arg1, argr):
     g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
     g.run()
 
-mbox_file = /Users/randy/Projects/MailSys/Data/Recent/default.mbox
+mbox_file = "/Users/randy/Projects/MailSys/Data/Recent/default.mbox"
 crange = (80576595,80578821)
-lrange = 
+lrange = (40, 60)
 
 def complexWindowTest(arg1, argr):
-    
+    g = (FileSourceDFN(mbox_file) | SplitDFN(2)
+         & (WindowDFN(crange[0], crange[1])
+            | (StringNewlineBatchDFN() | WindowDFN(lrange[0], lrange[1])))
+         & SerialMergeDFN(2) & SinkDFN(printRec))
+    g.run()
 
 test_function_mapping = {
-    "simple_pipe" : test1
+    "simple_pipe" : test1,
+    "complex_graph" : complexWindowTest
     }
 
 if __name__ == "__main__":
@@ -1170,5 +1175,5 @@ if __name__ == "__main__":
     test_function_mapping[test_name](test_name, sys.argv[2:])
 
 ## Local Variables: **
-## compile-command: "./dataflow2.py simple_pipe" **
+## compile-command: "./dataflow2.py complex_graph" **
 ## End: **
