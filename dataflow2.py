@@ -1049,3 +1049,7 @@ if __name__ == "__main__":
     test_name = sys.argv[1]
     assert test_name in test_function_mapping, "Test %s not found" % test_name
     test_function_mapping[test_name](test_name, sys.argv[2:])
+
+## Local Variables: **
+## compile-command: "./dataflow2.py simple_pipe" **
+## End: ** 
