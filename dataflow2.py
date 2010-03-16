@@ -2,7 +2,6 @@
 
 import copy
 import sys
-from sets import *
 
 ###		Dataflow Programming Library
 
@@ -218,7 +217,7 @@ def checkLinksArg(links, nodes, method_name):
             if not 0 <= l[0][1] < nodes[l[0][0]].numOutputPorts():
                 raise BadInputArguments, "Link %s in arg LINKS to method %s contains an out of range output port (%d)." % (l, method_name, l[0][1])
             if not 0 <= l[1][1] < nodes[l[1][0]].numInputPorts():
-                raise BadInputArguments "Link %s in arg LINKS to method %s contains an out of range input port (%d)." % (l, method_name, l[1][1])
+                raise BadInputArguments, "Link %s in arg LINKS to method %s contains an out of range input port (%d)." % (l, method_name, l[1][1])
 
     if links == eSerial:
         for i in range(len(nodes)-1):
@@ -286,7 +285,7 @@ class SingleDataflowNode(DataflowNode):
     def __init__(self, num_input_ports=1, num_output_ports=1):
         """Initialize the base class, specifying the number of input
         and output ports."""
-        if num_input_ports < 0 || num_output_ports < 0:
+        if num_input_ports < 0 or num_output_ports < 0:
             raise BadInputArguments, "Arguments to SingleDataflowNode constructor (%d,%d) includes negative number." % (num_input_ports, num_output_ports)
         self.__num_input_ports = num_input_ports
         self.__num_output_ports = num_output_ports
@@ -312,8 +311,8 @@ class SingleDataflowNode(DataflowNode):
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
         rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
         if rval is None:
-            raise BadInputArgument, "%s.seekOutput_ function did not return a value"
-                                   % type(self.__input_nodes[input_port])
+            raise BadInputArgument, ("%s.seekOutput_ function did not return a value"
+                                     % type(self.__input_nodes[input_port]))
         if not rval:
             assert len(self.__input_nodes[input_port].__ignoring_output_records) > src_self_oport
             self.__input_nodes[input_port].__ignoring_output_records[src_self_oport] = num_recs
@@ -330,7 +329,7 @@ class SingleDataflowNode(DataflowNode):
         # Not doing interface checking for performance; this function
         # is called repeatedly
         if self.__ignoring_output_records[output_port] != 0:
-            self.__ignoring_output_records[output_port]--
+            self.__ignoring_output_records[output_port] -= 1
         else:
             self.__output_nodes[output_port].input_(self.__output_node_iports[output_port], rec)
 
@@ -448,7 +447,7 @@ class CompositeDataflowNode(DataflowNode):
 
         # Validate arguments
         if not isinstance(node, DataflowNode):
-            raise BadInputArguments, "Arg NODE (%s) to method CompositeDataflowNode.addNode isn't a DataflowNode" %s node
+            raise BadInputArguments, "Arg NODE (%s) to method CompositeDataflowNode.addNode isn't a DataflowNode" % node
 
         checkLinksArg(links, (self,node), "CompositeDataflowNode.addNode")
 
@@ -516,7 +515,7 @@ class CompositeDataflowNode(DataflowNode):
         copy_node.__contained_nodes = [o.copy() for o in self.__contained_nodes[:]]
 
         # Re-create internal links
-         for l in self.internalLinks():
+        for l in self.internalLinks():
             (src_node_idx, src_port, dest_node_idx, dest_port) = l
             DataflowNode._DataflowNode_link(
                 (copy_node.__contained_nodes[src_node_idx], src_port),
@@ -670,7 +669,7 @@ class CompositeDataflowNode(DataflowNode):
             links = []
             for i in range(len(nodes)-1):
                 links += [((i, j), (i+1,j))
-                          for j in range(nodes.[i].numOutputPorts())]
+                          for j in range(nodes[i].numOutputPorts())]
 
         # Turn everything composite
         nodes = [CompositeDataflowNode(n) for n in nodes]
@@ -787,8 +786,8 @@ class SplitDFN(SingleDataflowNode):
     streams."""
     def __init__(self, num_outputs):
         if num_outputs < 0:
-            raise BadInputArguments, "SplitDFN constructor: num_outputs invalid (%d)"
-                                    % num_outputs
+            raise BadInputArguments, ("SplitDFN constructor: num_outputs invalid (%d)"
+                                      % num_outputs)
         SingleDataflowNode.__init__(self, num_output_ports=num_outputs)
         self.__num_outputs = num_outputs
         self.__skip_records = [0,] * num_outputs
@@ -798,7 +797,7 @@ class SplitDFN(SingleDataflowNode):
         for i in range(self.__num_outputs):
             if self.__skip_records[i]:
                 if self.__skip_records[i] > 0:
-                    self.__skip_records[i]--
+                    self.__skip_records[i] -= 1
             else:
                 self._output(i, rec)
 
@@ -809,7 +808,7 @@ class SplitDFN(SingleDataflowNode):
     def seekOutput_(self, num_recs, output_port):
         self.__skip_records[output_port] = num_recs
         if num_recs == -1:
-            self.__broken_pipes++
+            self.__broken_pipes += 1
         if self.__broken_pipes == len(self.__skip_records):
             # Nothing more to do here
             self.done()
@@ -871,7 +870,7 @@ class WindowDFN(SingleDataflowNode):
 
     def input_(self, input_port, rec):
         self._output(0, rec)
-        self.__next_record++
+        self.__next_record += 1
         self.__checkSeek()
 
     def eos_(self, input_port):
@@ -930,7 +929,7 @@ class SerialMergeDFN(SingleDataflowNode):
     """Merge incoming streams serially; i.e. everything on stream 0
     will be sent before anything on stream one is sent, and etc."""
     def __init__(self, num_inputs):
-        SingleDataflowNode.__init__(num_input_ports=num_inputs)
+        SingleDataflowNode.__init__(self, num_input_ports=num_inputs)
         self.__num_inputs = num_inputs
         self.__buffers = [[],] * num_inputs
         self.__eos_seen = [False,] * num_inputs
@@ -945,7 +944,7 @@ class SerialMergeDFN(SingleDataflowNode):
                and self.__eos_seen[self.__next_stream_to_output]):
             for rec in self.__buffers[self.__next_stream_to_output]:
                 self._output(0, rec)
-            self.__next_stream_to_output++
+            self.__next_stream_to_output += 1
         if self.__next_stream_to_output >= self.__num_inputs:
             self._done()
 
@@ -961,7 +960,7 @@ class FileLineSourceDFN(SingleDataflowNode):
     """Dump all the lines from a source file out the output, with each
     record being a single line."""
     def __init__(self, filename):
-        SingleDataflowNode.__init__(num_input_ports=0)
+        SingleDataflowNode.__init__(self, num_input_ports=0)
         self.__filename = filename
 
     def initialize_(self):
@@ -979,7 +978,7 @@ class FileLineSourceDFN(SingleDataflowNode):
             try:
                 while num_recs:
                     self._output(0, self.__file.next())
-                    num_recs--
+                    num_recs -= 1
             except StopIteration:
                 self._done()
 
@@ -995,7 +994,7 @@ class FileWriteDFN(SingleDataflowNode):
     """Write all incoming records into a file; note that the records
     must be strings."""
     def __init__(self, filename):
-        SingleDataflowNode.__init__(num_output_ports=0)
+        SingleDataflowNode.__init__(self, num_output_ports=0)
         self.__filename = filename
 
     def initialize_(self):
@@ -1013,7 +1012,7 @@ class GenerateIntervalDFN(SingleDataflowNode):
     on the output.  Interval tuple is (start, bound[, stride]) as usual
     for python.  Primarily used for debugging."""
     def __init__(self, interval_tuple):
-        SingleDataflowNode.__init__(num_input_ports=0)
+        SingleDataflowNode.__init__(self, num_input_ports=0)
         def gfunc():
             for i in range(*interval_tuple):
                 yield i
@@ -1022,7 +1021,7 @@ class GenerateIntervalDFN(SingleDataflowNode):
         try:
             while num_recs != 0:
                 self._output(self.__gfunc())
-                if num_recs != -1: num_recs--
+                if num_recs != -1: num_recs -= 1
         except StopIteration:
             self._done()
 
@@ -1036,7 +1035,7 @@ class ByteWindowDFN(SingleDataflowNode):
 def printRec(rec):
     print rec
 
-def test1():
+def test1(arg1, argr):
     g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
     g.run()
 
@@ -1052,4 +1051,4 @@ if __name__ == "__main__":
 
 ## Local Variables: **
 ## compile-command: "./dataflow2.py simple_pipe" **
-## End: ** 
+## End: **
