@@ -1140,6 +1140,9 @@ class StringNewlineBatchDFN(SingleDataflowNode):
             # Last entry isn't a full line
             self.__partial_line = orecs[-1]
             orecs = orecs[:-1]
+        else:
+            # Outputting them all
+            self.__partial_line = ""
         self._batchOutput(0, orecs)
         return True
 
