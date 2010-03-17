@@ -272,6 +272,10 @@ In C++ this would be an abstract base class, in Java an interface."""
         return CompositeDataflowNode((self, node), eParallel)
 
 class SingleDataflowNode(DataflowNode):
+    """Base class for simple nodes/operators; should be inherited from
+    to define specific nodes.  See "Stubs of functions that derived
+    classes may choose to implement" below, as well as a selection of
+    simple DataflowNodes implemented at the end of this file."""
     ### Public methods
     def numInputPorts(self):
         """Return the number of input ports that this node has
@@ -502,6 +506,8 @@ class SingleDataflowNode(DataflowNode):
         
 
 class CompositeDataflowNode(DataflowNode):
+    """Class for containing a connected set of SingleDataflowNode.  This is
+    a final class; it is not intended to be inherited from."""
     ### Public interface
 
     # Interfaces for structure creation
