@@ -1191,9 +1191,14 @@ def complexWindowTest(arg1, argr):
          & SerialMergeDFN(2) & SinkDFN(printRec))
     g.run()
 
+def snlbatch_test(arg1, argr):
+    g = (FileSourceDFN(mbox_file) & StringNewlineBatchDFN() & WindowDFN(40, 60) & SinkDFN(printRec))
+    g.run()
+
 test_function_mapping = {
     "simple_pipe" : test1,
-    "complex_graph" : complexWindowTest
+    "complex_graph" : complexWindowTest,
+    "snlbatch_test" : snlbatch_test
     }
 
 if __name__ == "__main__":
