@@ -1154,6 +1154,7 @@ class StringNewlineBatchDFN(SingleDataflowNode):
 
     def seekOutput_(self, num_recs, output_port):
         if num_recs == -1:
+            self.__partial_line = "" # Don't output anything on eos
             self._done()
             return True
         return False
