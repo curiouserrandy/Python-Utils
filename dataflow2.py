@@ -187,6 +187,9 @@ __all__ = (
     # Base classes
     "DataflowNode", "SingleDataflowNode", "CompositeDataflowNode",
     # Derived classes
+    "SplitDFN", "FilterDFN", "SinkDFN", "WindowDFN", "BatchDFN",
+    "SerialMergeDFN", "FileSourceDFN", "StringNewlineBatchDFN",
+    "FileWriteDFN", "GenerateIntervalDFN",
     # Constants
     "eSerial", "eParallel",
     # Routines
