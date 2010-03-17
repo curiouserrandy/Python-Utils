@@ -935,6 +935,7 @@ class SplitDFN(SingleDataflowNode):
         if self.__broken_pipes == len(self.__skip_records):
             # Nothing more to do here
             self._done()
+            return True         # Don't want to deal with minval processing
         minval = min([s for s in self.__skip_records if s >= 0])
         if minval > 0:
             self._ignoreInput(minval)
