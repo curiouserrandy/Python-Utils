@@ -972,7 +972,11 @@ class WindowDFN(SingleDataflowNode):
     two arguments, which are the first to pass on and the first record
     to ignore (i.e. it's a half open interval).  These arguments can be
     specified via named arguments WINDOW_START and WINDOW_END.  If WINDOW_END 
-    is -1, that indicates no end to the window."""
+    is -1, that indicates no end to the window.
+
+    Note that records are zero indexed, so if this is used on (for
+    instance) the lines of a file, it will produce results off by one
+    from head/tail."""
     def __init__(self, window_start=0, window_end=-1):
         if window_start < 0 or window_end < -1:
             raise BadInputArguments, "WindowDFN constructor: Argument invalid (window_start = %d, window_end = %d)" % (window_start, window_end)
