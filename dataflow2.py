@@ -1223,8 +1223,8 @@ def test1(arg1, argr):
     g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
     g.run()
 
-mbox_file = "/Users/randy/Projects/MailSys/Data/Recent/default.mbox"
-crange = (80576595,80578821)
+mbox_file = "/Users/randy/tmp/tmpoutfile"
+crange = (101010110, 101010210)
 lrange = (40, 60)
 
 def complexWindowTest(arg1, argr):
