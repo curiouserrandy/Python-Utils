@@ -910,11 +910,7 @@ class SplitDFN(SingleDataflowNode):
                 continue
 
             # Fewer records to skip (possibly zero) than we have case
-            try:
-                self._batchOutput(i, recs[self.__skip_records[i]:])
-            except:
-                pdb.set_trace()
-                raise
+            self._batchOutput(i, recs[self.__skip_records[i]:])
             self.__skip_records[i] = 0
         return True
 
@@ -1178,7 +1174,7 @@ class GenerateIntervalDFN(SingleDataflowNode):
 
 ## Testing
 def printRec(rec):
-    print rec,
+    sys.stdout.write(rec)
 
 def test1(arg1, argr):
     g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
