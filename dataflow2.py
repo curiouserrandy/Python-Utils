@@ -320,7 +320,7 @@ class SingleDataflowNode(DataflowNode):
         
     def _signalEos(self, output_port=0):
         """Signal that no more records will be transmitted on this port."""
-        print "SingleDataflowNode._signalEos() called for object ", self
+        # print "SingleDataflowNode._signalEos() called for object ", self
         if not 0 <= output_port < self.numOutputPorts():
             raise BadInputArguments, "SingleDataflowNode._signalEos: output_port (%d) out of range [0, %d]" % (output_port, numOutputPorts())
         dest_self_iport = self.__output_nodes[output_port].__input_nodes.index(self)
@@ -330,7 +330,7 @@ class SingleDataflowNode(DataflowNode):
     def _ignoreInput(self, num_recs=-1, input_port=0):
         """Request that the given number of records be skipped on this
         port.  NUM_RECS == -1 indicates that all records may be skipped."""
-        print "SingleDataflowNode._ignoreInput() called for object ", self
+        # print "SingleDataflowNode._ignoreInput() called for object ", self
         if not isinstance(num_recs, int) or num_recs < -1:
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid num_recs value %s" % num_recs
         if not 0 <= input_port < self.numInputPorts():
@@ -351,7 +351,7 @@ class SingleDataflowNode(DataflowNode):
         
     def _done(self):
         """Signal that this node has completed all its processing."""
-        print "SingleDataflowNode._done() called for object ", self
+        # print "SingleDataflowNode._done() called for object ", self
         if self.__active:
             self.__active = False
             for i in range(self.__num_input_ports):
@@ -926,7 +926,7 @@ class SplitDFN(SingleDataflowNode):
         self._done()            # Will result in downstream eoses.
 
     def seekOutput_(self, num_recs, output_port):
-        print "SplitDFN.seekOutput_(%d, %d) called" % (num_recs, output_port)
+        # print "SplitDFN.seekOutput_(%d, %d) called" % (num_recs, output_port)
         self.__skip_records[output_port] = num_recs
         if num_recs == -1:
             self.__broken_pipes += 1
@@ -1145,6 +1145,13 @@ class StringNewlineBatchDFN(SingleDataflowNode):
         if self.__partial_line:
             self._output(0, self.__partial_line)
             self._done()
+
+# Causes assertion in the infrastructure; will come back and find bug later.
+#    def seekOutput_(self, num_recs, output_port):
+#        if num_recs == -1:
+#            self._done()
+#            return True
+#        return False
 
 class FileWriteDFN(SingleDataflowNode):
     """Write all incoming records into a file; note that the records
