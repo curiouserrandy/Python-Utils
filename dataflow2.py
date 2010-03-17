@@ -204,11 +204,6 @@ eSerial = 1
 eParallel = 2
 
 # Module private routines used by class implementation
-def checkArgIsNode(node, arg_descript):
-    """Confirm arg NODE is either a node, or a (node, port) tuple."""
-    if not isinstance(node, DataflowNode):
-        raise BadInputArguments, "%s isn't DataflowNode" % arg_descript
-
 def checkLinksArg(links, nodes, method_name):
     """Confirm that the LINKS argument is valid in the context of the
     node list.  This means that it's a link list with valid
@@ -497,8 +492,8 @@ class SingleDataflowNode(DataflowNode):
         (node, port)."""
         (snode, sport) = snodeport
         (dnode, dport) = dnodeport
-        checkArgIsNode(snode, "First argument to DataflowNode.__link")
-        checkArgIsNode(dnode, "Second argument to DataflowNode.__link")
+        assert isinstance(snode, SingleDataflowNode)
+        assert isinstance(dnode, SingleDataflowNode)
             
         snode.__output_nodes[sport] = dnode
         snode.__output_node_iports[sport] = dport
@@ -752,7 +747,8 @@ ort
     def __initFromSingleton(self, node):
         """Make self a copy of node."""
 
-        checkArgIsNode(node, "First argument to composite node constructor");
+        if not isinstance(node, DataflowNode):
+            raise BadInputArguments("CompositeDataflowNode(node) called with non-DataflowNode argument")
 
         node = node.copy()
         if isinstance(node, CompositeDataflowNode):
@@ -777,7 +773,8 @@ ort
         same will be true for the output links.  """
 
         for n in nodes:
-            checkArgIsNode(n, "Node passed to to composite node constructor")
+            if not isinstance(n, DataflowNode):
+                raise BadInputArguments("CompositeDataflowNode(nodes, links) called with non-node element in first argument.")
         checkLinksArg(links, nodes, "CompositeDataflowNode constructor")
 
         # Create a real link list from symbolic args
