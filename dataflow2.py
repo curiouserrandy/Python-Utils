@@ -387,6 +387,7 @@ class SingleDataflowNode(DataflowNode):
         assert res is not None
         if not res:
             for r in recs:
+                assert self.__output_nodes[output_port].__active, self.__ignoring_output_records[output_port]
                 self._output(output_port, r)
                 # XXX: Workaround for base/derived split skip
                 # responsibility bug (see todo file): Don't keep
@@ -916,8 +917,8 @@ class SplitDFN(SingleDataflowNode):
                 continue
 
             # Fewer records to skip (possibly zero) than we have case
-            self._batchOutput(i, recs[self.__skip_records[i]:])
             self.__skip_records[i] = 0
+            self._batchOutput(i, recs[self.__skip_records[i]:])
         return True
 
     def eos_(self, input_port):
