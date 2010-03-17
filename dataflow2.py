@@ -713,8 +713,10 @@ ort
             nodes1 = nodes[:]
             num_recs = 1 if len(nodes1) > 1 else -1
             for d in nodes1:
-                if not d.execute_(num_recs):
-                    nodes.remove(d)
+                res = d.execute_(num_recs)
+                assert res is not None 	# Make sure they thought to return
+                			# a value
+                if not res: nodes.remove(d)
 
     # Operator overloading
     def __iand__(self, node):
