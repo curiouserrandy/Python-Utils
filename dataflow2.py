@@ -517,6 +517,7 @@ class CompositeDataflowNode(DataflowNode):
     # CompositeDataflowNode(node) -- Wrapper around single node
     # CompositeDataflowNode(nodes, links) -- Links two or more nodes
     def __init__(self, *args):
+        # Simple nodes contained by this instance
         self.__contained_nodes = []
 
 	# These arrays map from the composite node port# to
@@ -527,12 +528,8 @@ class CompositeDataflowNode(DataflowNode):
         if len(args) == 0:
             return # Composite node with no components
         elif len(args) == 1:
-            checkArgIsNode(args[0], "First argument to composite node constructor");
             self.__initFromSingleton(args[0])
         else:
-            for n in args[0]:
-                checkArgIsNode(n, "Element of first argument to composite node constructor")
-            checkLinksArg(args[1], args[0], "CompositeDataflowNode constructor")
             self.__initFromList(*args)
 
     def addNode(self, node, links=eSerial):
@@ -755,7 +752,7 @@ ort
     def __initFromSingleton(self, node):
         """Make self a copy of node."""
 
-        # Args validated in caller
+        checkArgIsNode(node[0], "First argument to composite node constructor");
 
         node = node.copy()
         if isinstance(node, CompositeDataflowNode):
@@ -779,7 +776,9 @@ ort
         presented by the composite node (in the order passed) and the
         same will be true for the output links.  """
 
-        # Args validated in caller
+        for n in nodes:
+            checkArgIsNode(n, "Node passed to to composite node constructor")
+        checkLinksArg(links, nodes, "CompositeDataflowNode constructor")
 
         # Create a real link list from symbolic args
         if links==eParallel:
