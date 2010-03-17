@@ -396,6 +396,12 @@ class SingleDataflowNode(DataflowNode):
                     or not self.__output_nodes[output_port].__active):
                     break
 
+    def _nodeActive(self):
+        """Is the node still active?  It can shut down while instance
+        methods are in progress, so they need some way to probe
+        for activity."""
+        return self.__active
+
     ### Stubs of functions that derived classes may choose to implement
     def input_(self, input_port, rec):
         """Override to accept input from upstream nodes."""
@@ -1101,7 +1107,7 @@ class FileSourceDFN(SingleDataflowNode):
         self.__file = open(self.__filename)
 
     def execute_(self, num_recs):
-        while num_recs != 0:
+        while num_recs != 0 and self._nodeActive():
             file_block = self.__file.read(self.__buffer_size)
             if not file_block:
                 # We're at EOF, therefore done.
@@ -1110,7 +1116,10 @@ class FileSourceDFN(SingleDataflowNode):
             self._batchOutput(0, file_block)
             if num_recs != -1:
                 num_recs -= 1
+        if self._nodeActive():
             return True
+        else:
+            return False
 
     def seekOutput_(self, num_recs, output_port):
         # Can only usefully handle this in the shutdown case, as we don't
