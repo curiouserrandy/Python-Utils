@@ -380,6 +380,7 @@ class SingleDataflowNode(DataflowNode):
                 return
             else:
                 recs = recs[self.__ignoring_output_records[output_port]:]
+                self.__ignoring_output_records[output_port] = 0
         res = self.__output_nodes[output_port].batchInput_(
             self.__output_node_iports[output_port], recs
             )
