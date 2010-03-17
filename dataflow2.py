@@ -392,7 +392,8 @@ class SingleDataflowNode(DataflowNode):
                 # XXX: Workaround for base/derived split skip
                 # responsibility bug (see todo file): Don't keep
                 # outputting if the destination goes inactive.
-                if not self.__output_nodes[output_port].__active:
+                if (self.__output_nodes[output_port] is None
+                    or not self.__output_nodes[output_port].__active):
                     break
 
     ### Stubs of functions that derived classes may choose to implement
@@ -1151,12 +1152,11 @@ class StringNewlineBatchDFN(SingleDataflowNode):
             self._output(0, self.__partial_line)
             self._done()
 
-# Causes assertion in the infrastructure; will come back and find bug later.
-#    def seekOutput_(self, num_recs, output_port):
-#        if num_recs == -1:
-#            self._done()
-#            return True
-#        return False
+    def seekOutput_(self, num_recs, output_port):
+        if num_recs == -1:
+            self._done()
+            return True
+        return False
 
 class FileWriteDFN(SingleDataflowNode):
     """Write all incoming records into a file; note that the records
