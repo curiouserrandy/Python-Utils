@@ -373,7 +373,7 @@ class SingleDataflowNode(DataflowNode):
     def _batchOutput(self, output_port, recs):
         """Output a whole bunch of records at once."""
         if self.__ignoring_output_records[output_port] != 0:
-            if self.__ignoring_output_records == -1:
+            if self.__ignoring_output_records[output_port] == -1:
                 return          # Ignore all of them
             if self.__ignoring_output_records[output_port] >= len(recs):
                 self.__ignoring_output_records[output_port] =- len(recs)
@@ -388,6 +388,11 @@ class SingleDataflowNode(DataflowNode):
         if not res:
             for r in recs:
                 self._output(output_port, r)
+                # XXX: Workaround for base/derived split skip
+                # responsibility bug (see todo file): Don't keep
+                # outputting if the destination goes inactive.
+                if not self.__output_nodes[output_port].__active:
+                    break
 
     ### Stubs of functions that derived classes may choose to implement
     def input_(self, input_port, rec):
