@@ -752,7 +752,7 @@ ort
     def __initFromSingleton(self, node):
         """Make self a copy of node."""
 
-        checkArgIsNode(node[0], "First argument to composite node constructor");
+        checkArgIsNode(node, "First argument to composite node constructor");
 
         node = node.copy()
         if isinstance(node, CompositeDataflowNode):
