@@ -473,15 +473,18 @@ class SingleDataflowNode(DataflowNode):
         NUM_RECS indicates the number of records you should generate (or
         the number of units of some sort of equivalent processing you
         should do) before returning.  If NUM_RECS is -1, an arbitrary
-        amount of processing may be done.  execute_ should check after
-        each iteration to confirm that the operator has not been
+        amount of processing may be done.  execute_ should check before
+        doing any output to confirm that the operator has not been
         shutdown by some other method; specifically if
         _done() or _signalEos() has been called by any method operator, it
         is no longer legal to output on that output port.
 
-        execute_ should return False should be returned if this
-        routine does not need to be called again to drive processing
-        and True if there is more processing for the node to do."""
+        execute_ should return False if it does does not need to be
+        called again to drive processing and True if there is more
+        processing for the node to do.  It is the responsibility of
+        the execute_ method to detect this state; specifically,
+        calling _done() does not prevent execute_() from later
+        being called on the node."""
         return False
 
     def initialize_(self):
