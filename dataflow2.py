@@ -381,7 +381,6 @@ class SingleDataflowNode(DataflowNode):
             if self.__ignoring_output_records[output_port] != -1:
                 self.__ignoring_output_records[output_port] -= 1
         else:
-            assert self.__output_nodes[output_port].__active
             self.__output_nodes[output_port].input_(self.__output_node_iports[output_port], rec)
 
     def _batchOutput(self, output_port, recs):
@@ -406,14 +405,14 @@ class SingleDataflowNode(DataflowNode):
                 # XXX: Workaround for base/derived split skip
                 # responsibility bug (see todo file): Don't keep
                 # outputting if the destination goes inactive.
+                # This is substantially less than ideal.
                 if (self.__output_nodes[output_port] is None
                     or not self.__output_nodes[output_port].__active):
                     break
 
     def _nodeActive(self):
-        """Is the node still active?  It can shut down while instance
-        methods are in progress, so they need some way to probe
-        for activity."""
+        """True if _done() has never been called, False if it has.
+        Convenience function for derived classes."""
         return self.__active
 
     ### Stubs of functions that derived classes may choose to implement
