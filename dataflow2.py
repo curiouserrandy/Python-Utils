@@ -69,6 +69,15 @@ import os
 # 	  usually only needed for generator nodes (i.e. nodes that
 # 	  have no input but produce outputs).  
 #	* Overriding "batchInput_" to receive groups of record at a time.
+#
+# Note: Using these optional operations will increase the complexity that
+# must be tracked by the class.  Specifically a) it is illegal to output any
+# records on an output port after _signalEos() has been called on that port
+# (or _done() has been called at all), and b) the methods listed above
+# (specifically seekOutput_() and eos_()) may be called indirectly
+# as a result of a node's _output() or _batchOutput() call.  So if a class
+# calls _output()/_batchOutput() repeatedly within a method it must ensure
+# that the calls remain legal.
 
 # Implementation sketch
 
