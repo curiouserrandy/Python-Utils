@@ -335,13 +335,18 @@ class SingleDataflowNode(DataflowNode):
         # print "SingleDataflowNode._signalEos() called for object ", self
         if not 0 <= output_port < self.numOutputPorts():
             raise BadInputArguments, "SingleDataflowNode._signalEos: output_port (%d) out of range [0, %d]" % (output_port, numOutputPorts())
-        dest_self_iport = self.__output_nodes[output_port].__input_nodes.index(self)
-        self.__output_nodes[output_port].eos_(dest_self_iport)
+        dnode = self.__output_nodes[output_port]
+        if dnode is None:
+            return              # We've previously been called; don't repeat
+
+        dest_self_iport = dnode.__input_nodes.index(self)
         self.__output_nodes[output_port] = None
+        dnode.eos_(dest_self_iport)
 
     def _ignoreInput(self, num_recs=-1, input_port=0):
         """Request that the given number of records be skipped on this
-        port.  NUM_RECS == -1 indicates that all records may be skipped."""
+        port.  NUM_RECS == -1 indicates that all records may be skipped.
+        This call stacks additively with previous calls to _ignoreInput."""
         # print "SingleDataflowNode._ignoreInput() called for object ", self
         if not isinstance(num_recs, int) or num_recs < -1:
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid num_recs value %s" % num_recs
@@ -349,29 +354,30 @@ class SingleDataflowNode(DataflowNode):
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid input_port value %d" % input_port
         src_node = self.__input_nodes[input_port]
 
-        if self not in self.__input_nodes[input_port].__output_nodes:
+        if self not in src_node.__output_nodes:
             # _signalEos has been called; we'll never see input from
             # this node again.
             return
 
-        src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
-        rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
+        src_self_oport = src_node.__output_nodes.index(self)
+        rval = src_node.seekOutput_(num_recs, src_self_oport)
         if rval is None:
             raise BadMethodOverride("%s.seekOutput_ function did not return a value"
-                                     % type(self.__input_nodes[input_port]))
+                                     % type(src_node))
         if not rval:
-            assert len(self.__input_nodes[input_port].__ignoring_output_records) > src_self_oport
-            self.__input_nodes[input_port].__ignoring_output_records[src_self_oport] = num_recs
+            assert len(src_node.__ignoring_output_records) > src_self_oport
+            if num_recs != -1:
+                num_recs += src_node.__ignoring_output_records[src_self_oport]
+            src_node.__ignoring_output_records[src_self_oport] = num_recs
         
     def _done(self):
         """Signal that this node has completed all its processing."""
         # print "SingleDataflowNode._done() called for object ", self
-        if self.__active:
-            self.__active = False
-            for i in range(self.__num_input_ports):
-                self._ignoreInput(input_port=i)
-            for i in range(self.__num_output_ports):
-                self._signalEos(i)
+        self.__active = False
+        for i in range(self.__num_input_ports):
+            self._ignoreInput(input_port=i)
+        for i in range(self.__num_output_ports):
+            self._signalEos(i)
 
     def _output(self, output_port, rec):
         """Output a record on the specified port for the next node."""
@@ -443,16 +449,18 @@ class SingleDataflowNode(DataflowNode):
 
     def seekOutput_(self, num_recs, output_port):
         """Override if a request from a downstream node to seek
-        forward NUM_RECS in the stream can be handled in some
-        efficient fashion by the node.  If this function returns
-        False, the infrastructure will manually skip the records; if it
-        returns True, the responsibility for skipping them has been
-        accepted by the derived class.
+        forward NUM_RECS in the stream (see _ignoreInput()) can be handled
+        in some efficient fashion by the node (-1 means skip all records).
+        If this function returns False, the infrastructure will manually
+        skip the records; if it returns True, the responsibility for
+        skipping them has been accepted by the derived class.  Note that
+        if this function is called multiple times the arguments
+        should be added.
 
-        Note that for pure transformation nodes (one record out for each
-        record in, no maintained state) this should be overridden to pass the
-        notification upstream; if a record is going to be dropped, it should be
-        dropped as far upstream as possible."""
+        For pure transformation nodes (one record out for each
+        record in, no maintained state) it is valuable to override this method
+        to pass the notification up the stream; if a record is going to
+        be dropped, it should be dropped as far upstream as possible."""
         return False
 
     def execute_(self, num_recs):
@@ -955,9 +963,12 @@ class SplitDFN(SingleDataflowNode):
 
     def seekOutput_(self, num_recs, output_port):
         # print "SplitDFN.seekOutput_(%d, %d) called" % (num_recs, output_port)
+        if num_recs != -1:
+            num_recs += self.__skip_records[output_port]
         self.__skip_records[output_port] = num_recs
         if num_recs == -1:
             self.__broken_pipes += 1
+            self._signalEos(output_port)
         if self.__broken_pipes == len(self.__skip_records):
             # Nothing more to do here
             self._done()
