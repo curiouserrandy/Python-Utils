@@ -197,6 +197,7 @@ __all__ = (
 
 # Exceptions used by module
 class BadInputArguments(Exception): pass
+class BadMethodOverride(Exception): pass
 class BadGraphConfig(Exception): pass
 
 # Enums used in module class interfaces
@@ -345,7 +346,7 @@ class SingleDataflowNode(DataflowNode):
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
         rval = self.__input_nodes[input_port].seekOutput_(num_recs, src_self_oport)
         if rval is None:
-            raise BadInputArgument, ("%s.seekOutput_ function did not return a value"
+            raise BadMethodOverride("%s.seekOutput_ function did not return a value"
                                      % type(self.__input_nodes[input_port]))
         if not rval:
             assert len(self.__input_nodes[input_port].__ignoring_output_records) > src_self_oport
@@ -688,9 +689,8 @@ ort
 
         # Arguably disjoint graphs should be ok; I could imagine cases
         # in which you'd want a composite node that did two things
-        # in parallel.  But the current construction mechanism doesn't
-        # allow for disjoint graphs, and so asserting for it seems a wise
-        # idea
+        # in parallel.  Going for more constrained rather than less
+        # constrained for the moment.  
         self.__checkConnected()
 
         # Initialize the graph
@@ -706,8 +706,8 @@ ort
             num_recs = 1 if len(nodes1) > 1 else -1
             for d in nodes1:
                 res = d.execute_(num_recs)
-                assert res is not None 	# Make sure they thought to return
-                			# a value
+                if res is None:
+                    raise BadMethodOverride("%s execute_ method did not return a value" % type(d))
                 if not res: nodes.remove(d)
 
     # Operator overloading
