@@ -348,8 +348,10 @@ class SingleDataflowNode(DataflowNode):
         if not 0 <= input_port < self.numInputPorts():
             raise BadInputArguments, "SingleDataflowNode._ignoreInput: Invalid input_port value %d" % input_port
         src_node = self.__input_nodes[input_port]
-        if not src_node.__active:
-            # We'll never see input from this guy again
+
+        if self not in self.__input_nodes[input_port].__output_nodes:
+            # _signalEos has been called; we'll never see input from
+            # this node again.
             return
 
         src_self_oport = self.__input_nodes[input_port].__output_nodes.index(self)
