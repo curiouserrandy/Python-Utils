@@ -403,7 +403,9 @@ class SingleDataflowNode(DataflowNode):
         res = self.__output_nodes[output_port].batchInput_(
             self.__output_node_iports[output_port], recs
             )
-        assert res is not None
+        if res is None:
+            raise BadMethodOverride("%s method batchInput_ did not return a value" % type(self.__output_nodes[output_port])
+
         if not res:
             for r in recs:
                 assert self.__output_nodes[output_port].__active, self.__ignoring_output_records[output_port]
