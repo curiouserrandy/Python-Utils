@@ -336,8 +336,12 @@ class SingleDataflowNode(DataflowNode):
         if not 0 <= output_port < self.numOutputPorts():
             raise BadInputArguments, "SingleDataflowNode._signalEos: output_port (%d) out of range [0, %d]" % (output_port, numOutputPorts())
         dnode = self.__output_nodes[output_port]
-        if dnode is None:
+        if self.__eos_pending[output_port] or dnode is None:
             return              # We've previously been called; don't repeat
+
+        if self.__in_transition_records[output_port] != 0:
+            self.__eos_pending[output_port] = True
+            return              # Will propagate after batch output
 
         dest_self_iport = dnode.__input_nodes.index(self)
         self.__output_nodes[output_port] = None
@@ -358,14 +362,27 @@ class SingleDataflowNode(DataflowNode):
             # _signalEos has been called; we'll never see input from
             # this node again.
             return
-
         src_self_oport = src_node.__output_nodes.index(self)
+
+        assert len(src_node.__ignoring_output_records) > src_self_oport
+
+        # Deal with records in transition, which need to be dropped
+        # by infrastructure
+        if src_node.__in_transition_records[src_self_oport] != 0:
+            infra_num_recs_to_drop = min(src_node.__in_transition_records[src_self_oport],
+                                         num_recs)
+            if infra_num_recs_to_drop != -1:
+                infra_num_recs_to_drop += src_node.__ignoring_output_records[src_self_oport]
+            src_node.__ignoring_output_records[src_self_oport] = infra_num_recs_to_drop
+            num_recs -= infra_num_recs_to_drop
+        
+        # Deal with other records, which may or may not need to be dropped by
+        # infrastructure
         rval = src_node.seekOutput_(num_recs, src_self_oport)
         if rval is None:
             raise BadMethodOverride("%s.seekOutput_ function did not return a value"
                                      % type(src_node))
         if not rval:
-            assert len(src_node.__ignoring_output_records) > src_self_oport
             if num_recs != -1:
                 num_recs += src_node.__ignoring_output_records[src_self_oport]
             src_node.__ignoring_output_records[src_self_oport] = num_recs
@@ -391,6 +408,7 @@ class SingleDataflowNode(DataflowNode):
 
     def _batchOutput(self, output_port, recs):
         """Output a whole bunch of records at once."""
+        # Handle records currently being ignored by infrastructure
         if self.__ignoring_output_records[output_port] != 0:
             if self.__ignoring_output_records[output_port] == -1:
                 return          # Ignore all of them
@@ -400,23 +418,29 @@ class SingleDataflowNode(DataflowNode):
             else:
                 recs = recs[self.__ignoring_output_records[output_port]:]
                 self.__ignoring_output_records[output_port] = 0
+
+        # Try to get the downstream node to take the rest in a bunch
         res = self.__output_nodes[output_port].batchInput_(
             self.__output_node_iports[output_port], recs
             )
         if res is None:
-            raise BadMethodOverride("%s method batchInput_ did not return a value" % type(self.__output_nodes[output_port])
+            raise BadMethodOverride("%s method batchInput_ did not return a value" % type(self.__output_nodes[output_port]))
 
+        # If it doesn't, pass them down by hand, doing appropriate accounting
+        # to handle indirectly calling _ignoreInput() or _signalEos() 
         if not res:
+            self.__in_transition_records[output_port] = len(recs)
             for r in recs:
-                assert self.__output_nodes[output_port].__active, self.__ignoring_output_records[output_port]
+                # This should be safe, as eos should be held off while
+                # we finish outputting, and _output() is responsible for
+                # dropping records.
                 self._output(output_port, r)
-                # XXX: Workaround for base/derived split skip
-                # responsibility bug (see todo file): Don't keep
-                # outputting if the destination goes inactive.
-                # This is substantially less than ideal.
-                if (self.__output_nodes[output_port] is None
-                    or not self.__output_nodes[output_port].__active):
-                    break
+                self.__in_transition_records[output_port] -= 1
+            assert self.__in_transition_records[output_port] == 0
+            if self.__eos_pending[output_port]:
+                self.__eos_pending[output_port] = False
+                self._signalEos(output_port)
+
 
     def _nodeActive(self):
         """True if _done() has never been called, False if it has.
@@ -508,9 +532,23 @@ class SingleDataflowNode(DataflowNode):
         # Input port # on peer corresponding to our output port.
         self.__output_node_iports = [None,] * self.__num_output_ports
 
-        # Non-zero if automatically processing an ignoreInput from
-        # that output nodes
+        # Number of records that need to be skipped on a particular
+ 	# output port on output.  May be -1 (skip all).  Note that this
+ 	# value may be non-zero even if the class overrides seekOutput_;
+ 	# if a class method has called _batchOutput() and there are
+ 	# records "in transition" when an _ignoreInput() call is done
+	# (i.e. the infrastructure is calling _output() by hand for them)
+ 	# those records must be skipped by the infrastructure.
         self.__ignoring_output_records = [0,] * self.__num_output_ports
+
+        # Number of records in transition in the infrastructure (have
+        # been passed in by _batchOutput() but not yet passed on to the
+        # downstream node.)
+        self.__in_transition_records = [0,] * self.__num_output_ports
+
+        # Note that an eos has been signalled when a batch output is
+        # in progress; this will need to be processed when it's done.
+        self.__eos_pending = [False,] * self.__num_output_ports
 
     @staticmethod
     def __link(snodeport, dnodeport):
