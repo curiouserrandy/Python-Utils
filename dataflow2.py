@@ -7,6 +7,8 @@ import os
 
 ###		Dataflow Programming Library
 
+### Overview
+
 # This module implements a simple dataflow programming library,
 # allowing nodes of a dataflow graph to be easily created, linked
 # together, and run as a program.  The library provides some commonly
@@ -79,7 +81,32 @@ import os
 # repeatedly within a method it must ensure that later calls have not been
 # made illegal by a _signalEos()/_done() call in another method.
 
-# Implementation sketch
+### Included derived classes
+
+# A series of derived classes that implement specific, commonly useful 
+# dataflow constructs are included.  These may be used as example
+# implementations patterns for user DataflowNode s.  They are:
+# 
+# SplitDFN -- Copy an input stream to multiple output streams
+# FilterDFN -- Transform records 1-to-1 based on a function provided
+#     as argument.
+# SinkDFN -- Feed records into a function at the endpoint of a graph.
+# WindowDFN -- Let pass only a specific window of records, specified
+#     by record number.
+# BatchDFN -- Group some number of incoming records into a single
+#     outgoing record. 
+# SerialMergeDFN -- Merge multiple streams by passing the entire
+#     first input stream, then the second, then the third ...
+# FileSourceDFN -- Output a file on a stream, with individual bytes
+#     as the records.  Motivation for batchInput_/_batchOutput
+#     functionality. 
+# StringNewlineBatchDFN -- Group incoming byte records into line records. 
+# FileWriteDFN -- Write a stream to a file.
+# GenerateIntervalDFN -- Generate integer records to output 
+#     according to the usual python rules for intervals.  Primarily a
+#     debugging class.
+
+### Implementation sketch
 
 # The three key classes in this file are DataflowNode,
 # SingleDataflowNode, and CompositeDataflowNode.  DataflowNode is an
@@ -122,8 +149,8 @@ import os
 #	  needs to pass a record onto the next node in the graph.
 #	* <user defined class>.input_().  This function is called
 #	  whenever a new input record is to be presented to a node.
-#	  It must be overridden by all DataflowNodes except those
-#	  which have no inputs.
+#	  It must be overridden by all DataflowNodes which have inputs
+#	  (i.e. most of them).
 #	  
 # The library also provides support for signalling end of stream (so
 # that nodes can do any cleanup or terminal work), for requesting 
@@ -140,7 +167,7 @@ import os
 # or composite) that has links outside of itself.  Performance is only
 # a priority for graph execution.
 
-# Naming conventions
+### Naming conventions
 
 # Class method naming conventions.
 #	* Public methods: No decoration
@@ -682,8 +709,47 @@ class CompositeDataflowNode(DataflowNode):
 
         return copy_node
 
-    # Interfaces for probing structure
+    # Interfaces for running the graph
+    def run(self):
+        """Run the dataflow graph contained in this object."""
+        ### Check:
+        ###	* Graph self-contained
+        ###	* No cycles
+        ###	* Not disjoint
+        ### Call all initialize routines
+        ### Drive graph by calling execute routines of nodes that need it.
 
+        if self.numInputPorts() != 0:
+            raise BadInputArguments, "Graph %s has non-zero inputs" % self
+        if self.numOutputPorts() != 0:
+            raise BadInputArguments, "Graph %s has non-zero output" % self
+
+        self.__checkAcyclic()
+
+        # Arguably disjoint graphs should be ok; I could imagine cases
+        # in which you'd want a composite node that did two things
+        # in parallel.  Going for more constrained rather than less
+        # constrained for the moment.  
+        self.__checkConnected()
+
+        # Initialize the graph
+        for n in self.__contained_nodes:
+            n.initialize_()
+
+        # Call all execute_() routines until they've all returned
+        # False.  Stop calling an node's routine when it returns
+        # False.  If there's only one node, just hand control to it.
+        nodes = self.__contained_nodes[:]
+        while nodes:
+            nodes1 = nodes[:]
+            num_recs = 1 if len(nodes1) > 1 else -1
+            for d in nodes1:
+                res = d.execute_(num_recs)
+                if res is None:
+                    raise BadMethodOverride("%s execute_ method did not return a value" % type(d))
+                if not res: nodes.remove(d)
+
+    # Interfaces for probing structure
     def numInputPorts(self):
         """Return the number of input ports that this node has
         available.  Defines the range of allowed input port indices that can
@@ -733,47 +799,6 @@ ort
         (src_node_idx, src_node_port)."""
         return self.__output_port_descrs[:]
 
-    # Interfaces for running the graph
-
-    def run(self):
-        """Run the dataflow graph contained in this object."""
-        ### Check:
-        ###	* Graph self-contained
-        ###	* No cycles
-        ###	* Not disjoint
-        ### Call all initialize routines
-        ### Drive graph by calling execute routines of nodes that need it.
-
-        if self.numInputPorts() != 0:
-            raise BadInputArguments, "Graph %s has non-zero inputs" % self
-        if self.numOutputPorts() != 0:
-            raise BadInputArguments, "Graph %s has non-zero output" % self
-
-        self.__checkAcyclic()
-
-        # Arguably disjoint graphs should be ok; I could imagine cases
-        # in which you'd want a composite node that did two things
-        # in parallel.  Going for more constrained rather than less
-        # constrained for the moment.  
-        self.__checkConnected()
-
-        # Initialize the graph
-        for n in self.__contained_nodes:
-            n.initialize_()
-
-        # Call all execute_() routines until they've all returned
-        # False.  Stop calling an node's routine when it returns
-        # False.  If there's only one node, just hand control to it.
-        nodes = self.__contained_nodes[:]
-        while nodes:
-            nodes1 = nodes[:]
-            num_recs = 1 if len(nodes1) > 1 else -1
-            for d in nodes1:
-                res = d.execute_(num_recs)
-                if res is None:
-                    raise BadMethodOverride("%s execute_ method did not return a value" % type(d))
-                if not res: nodes.remove(d)
-
     # Operator overloading
     def __iand__(self, node):
         """Link the argument node into this one, attaching all outputs of
@@ -781,15 +806,14 @@ ort
         A copy is made of the argument node, but this node is modified."""
 
         # Argument validation done by callee
-
         self.addNode(node, eSerial)
+
     def __ior__(self, node):
         """Link the argument node into this one, exposing all inputs
         and outputs of both nodes in the resulting node.
         A copy is made of the argument node, but this node is modified."""
 
         # Argument validation done by callee
-
         self.addNode(node, eParallel)
 
     def __str__(self):
@@ -1254,7 +1278,7 @@ class FileWriteDFN(SingleDataflowNode):
         self.__file = open(self.__filename, "w")
 
     def input_(self, input_port, rec):
-        self.__file(rec)
+        self.__file.write(rec)
 
     def eos_(self, input_port=0):
         self.__file.close()
