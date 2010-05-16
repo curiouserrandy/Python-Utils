@@ -344,7 +344,7 @@ class SingleDataflowNode(DataflowNode):
         res += ">"
         return res
 
-    ### "Protected" interface (for use of derived classes
+    ### "Protected" interface (for use of derived classes)
     def __init__(self, num_input_ports=1, num_output_ports=1):
         """Initialize the base class, specifying the number of input
         and output ports."""
