@@ -72,8 +72,8 @@ import os
 #	* Overridding "eos_" to receive notification from upstream
 # 	  nodes that no further data will be received on a link, and
 # 	  calling _signalEos() to signal the same to downstream
-# 	  nodes.  This is recommended, as some nodes may rely on eos()
-# 	  processing to complete their functioning (e.g. sort())
+# 	  nodes.  The default "eos_" shuts down all processing of the
+#	  operator when called.
 # 	* Overriding "initialize_" to get a notification after the
 # 	  graph has been created but before it starts to run, to do
 # 	  any expensive initialization that may be required.
@@ -511,8 +511,14 @@ class SingleDataflowNode(DataflowNode):
     def eos_(self, input_port):
         """Override if notification of end of stream (no further input
         will be provided) is wanted; this function will be called when the
-        node linked to the indicated port signals EOS."""
-        pass
+        node linked to the indicated port signals EOS.
+
+        The default version of this function closes down the operator
+        when it is called, so it should be overridden when that is
+        inappropriate behavior.  Two specific contexts in which this is
+        wise are if the operator has more than one input, or if it saves any
+        state between input records that need to be flushed on EOS."""
+        self._done()
 
     def seekOutput_(self, num_recs, output_port):
         """Override if a request from a downstream node to seek
