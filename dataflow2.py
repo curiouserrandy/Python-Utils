@@ -232,6 +232,47 @@ import os
 # * List of any obove objects: Suffix "s"
 # * Size of a list of any above objects: num_<obj>s
 
+### Potential future work
+
+# One thing that's often useful when debugging dataflow graph problems
+# is a log of the events as they occur.  There are two challenges with
+# doing a general logging interface.  The first is that dataflow
+# graphs are often used to handle high volumes of data, and that would
+# produce a very large log.  The second is that timestamps would be
+# useful, but (again, related to the high data volumes) often the work
+# done on a per-log entry basis would be dwarfed by the cost of a
+# system call.  The design this suggests is one in which adjacent
+# identical log entries are collapsed into an X happened Y times type
+# of entry, and a timestamp only done for each such combined entry.
+# This is problematic because based on the current design, individual
+# records would flow down the stream until they hit a buffer before
+# the next item is pushed in.  Alterantively, timestamps and log
+# entries could be done on each call to an "execute" function
+# (possibly with mini-log entries rolled up automatically), and
+# adjacent equal such entries combined.
+#
+# I think this suggests a design.  Log entries would be divided into
+# fully-logged and breadcrumbed.  Breadcrumb entries are: a single
+# record was transmitted along edge Y.  Fully-logged entries are:
+# 	* Any type of batch output
+#	* EOS signalled along edge Y
+#	* Skip input signalled along edge Y (Do we breadcrumb skipped
+# 	  input?  No.)
+# Fully logged entries are timestamped when they start.  
+# 
+# Specific events roll up breadcrumbs.  Rolling up breadcrumbs means 
+#	* Create a vector of edge numbers for the current set of breadcrumbs.
+# 	* Compare that vector with the last fully-logged entry.  
+#	* If it matches, increment the count on that entry by one.
+# 	* If it doesn't match, create a new fully logged entry.
+# Note that fully logged entries being logged when they start, and
+# breadcrumbs rolling up into a fully logged entry, mean that when a
+# breadcrumb is started, a timestamp must be generated.
+#
+# Breadcrumbs are rolled up when:
+#	* A fully logged entry is generated
+#	* The main control loop is returned into.  
+
 # Identifiers exported by this module
 __all__ = (
     # Base classes
