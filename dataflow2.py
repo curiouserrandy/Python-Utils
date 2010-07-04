@@ -1077,7 +1077,7 @@ class FilterDFN(SingleDataflowNode):
         self.__filter_func = filter_func
 
     def input_(self, input_port, rec):
-        self._output(0, self.__filter_Func(rec))
+        self._output(0, self.__filter_func(rec))
 
     def eos_(self, input_port):
         assert input_port == 0
@@ -1278,7 +1278,7 @@ class StringNewlineBatchDFN(SingleDataflowNode):
     def eos_(self, input_port):
         if self.__partial_line:
             self._output(0, self.__partial_line)
-            self._done()
+        self._done()
 
     def seekOutput_(self, num_recs, output_port):
         if num_recs == -1:
@@ -1324,33 +1324,146 @@ class GenerateIntervalDFN(SingleDataflowNode):
             return False
         return True
 
+class SortStream(SingleDataflowNode):
+    """Batch the incoming input stream until eos seen, sort it, and
+    dump it on the output.  Does not handle streams too large to fit
+    in memory."""
+    def __init__(self, uniquify=False):
+        SingleDataflowNode.__init__(self)
+        self.__uniquify_stream = uniquify
+        self.record_array = []
+
+    def input_(self, input_port, rec):
+        self.record_array.append(rec)
+
+    def eos_(self, input_port):
+        self.record_array.sort()
+        ## Uniquify if requested
+        if self.__uniquify_stream:
+            last = self.record_array[0]
+            dst = src = 1
+            while src < len(self.record_array):
+                if self.record_array[src] != last:
+                    self.record_array[dst] = last = self.record_array[src]
+                    dst += 1
+                src += 1
+            self.record_array = self.record_array[:dst]
+        ## Ship the sucker out.  Note that this could conceivably
+        ## cause grief in complicated graphs if a merge point gets
+        ## swamped from one direction and can't get input from another.
+        ## It would be nice to figure out a general solution to this,
+        ## but the general problem exists as long as people use
+        ## _batchOutput and that's way too useful a feature, so I'm
+        ## not going to try to solve the problem piecemeal.
+        self._batchOutput(0, self.record_array)
+        self._done()
+
 ## Testing
 def printRec(rec):
     sys.stdout.write(rec)
+    return rec                  # To use with filter.
+
+def voidFunc(rec):
+    pass
+
+class InvalidStreamException(Exception): pass
+class ValidateStream(SingleDataflowNode):
+    """validate that an input stream corresponds to a pre-specified set of
+    records; throw an invalid stream exception if not."""
+
+    def __init__(self, expected_stream):
+        SingleDataflowNode.__init__(self, 1, 0)
+        self.__expected_stream = expected_stream
+        self.__stream_pos = 0
+
+    def input_(self, input_port, rec):
+        if self.__stream_pos >= len(self.__expected_stream):
+            raise InvalidStreamException("Record received past end of expected set:\n\t%s" % rec)
+        if rec != self.__expected_stream[self.__stream_pos]:
+            raise InvalidStreamException("Mismatch on stream at position %d; expected:\n\t|%s|\nand got:\n\t|%s|\n(Types: %s, %s)" % (self.__stream_pos, self.__expected_stream[self.__stream_pos], rec, type(self.__expected_stream[self.__stream_pos]), type(rec)))
+        self.__stream_pos += 1
+
+    def eos_(self, input_port):
+        if self.__stream_pos != len(self.__expected_stream):
+            raise InvalidStreamException("Stream ended early at position %d"% self.__stream_pos)
+        self._done()
 
 def test1(arg1, argr):
     g = GenerateIntervalDFN((2, 20, 4)) & SinkDFN(printRec)
     g.run()
 
-mbox_file = "/Users/randy/tmp/tmpoutfile"
+mbox_file = "/Users/randy/utils/python/tmpoutfile"
 crange = (101010110, 101010210)
 lrange = (40, 60)
+expected_list = (
+    "Line number 5106061",
+    "Line number 5106062",
+    "Line number 5106063",
+    "Line number 5106064",
+    "Line number 5106065",
+    "Line number 40",
+    "Line number 41",
+    "Line number 42",
+    "Line number 43",
+    "Line number 44",
+    "Line number 45",
+    "Line number 46",
+    "Line number 47",
+    "Line number 48",
+    "Line number 49",
+    "Line number 50",
+    "Line number 51",
+    "Line number 52",
+    "Line number 53",
+    "Line number 54",
+    "Line number 55",
+    "Line number 56",
+    "Line number 57",
+    "Line number 58",
+    "Line number 59",
+    )
 
 def complexWindowTest(arg1, argr):
     g = (FileSourceDFN(mbox_file) & SplitDFN(2)
-         & (WindowDFN(crange[0], crange[1])
+         & ((WindowDFN(crange[0], crange[1]) & StringNewlineBatchDFN())
             | (StringNewlineBatchDFN() & WindowDFN(lrange[0], lrange[1])))
-         & SerialMergeDFN(2) & SinkDFN(printRec))
+         & SerialMergeDFN(2) & ValidateStream(expected_list))
     g.run()
 
 def snlbatch_test(arg1, argr):
     g = (FileSourceDFN(mbox_file) & StringNewlineBatchDFN() & WindowDFN(40, 60) & SinkDFN(printRec))
     g.run()
 
+def sort_test(arg1, argr):
+    g = (FileSourceDFN(mbox_file) & SplitDFN(2)
+         & ((WindowDFN(155, 305) & StringNewlineBatchDFN()) 
+            | (StringNewlineBatchDFN() & WindowDFN(16, 28)))
+         & SerialMergeDFN(2) & SortStream(uniquify=True)
+         & ValidateStream(("Line number 11\n",
+                           "Line number 12\n", 
+                           "Line number 13\n", 
+                           "Line number 14\n", 
+                           "Line number 15\n", 
+                           "Line number 16\n", 
+                           "Line number 17\n", 
+                           "Line number 18\n", 
+                           "Line number 19\n", 
+                           "Line number 20\n", 
+                           "Line number 21\n", 
+                           "Line number 22\n", 
+                           "Line number 23\n", 
+                           "Line number 24\n", 
+                           "Line number 25\n", 
+                           "Line number 26\n", 
+                           "Line number 27\n", 
+                           )))
+    g.run()
+    
 test_function_mapping = {
     "simple_pipe" : test1,
     "complex_graph" : complexWindowTest,
-    "snlbatch_test" : snlbatch_test
+    "snlbatch_test" : snlbatch_test,
+    "sort_test" : sort_test
     }
 
 if __name__ == "__main__":
@@ -1360,5 +1473,5 @@ if __name__ == "__main__":
     test_function_mapping[test_name](test_name, sys.argv[2:])
 
 ## Local Variables: **
-## compile-command: "./dataflow2.py complex_graph" **
+## compile-command: "./dataflow2.py sort_test" **
 ## End: **
