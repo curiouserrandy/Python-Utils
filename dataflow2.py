@@ -239,7 +239,7 @@ __all__ = (
     # Derived classes
     "SplitDFN", "FilterDFN", "SinkDFN", "WindowDFN", "BatchDFN",
     "SerialMergeDFN", "FileSourceDFN", "StringNewlineBatchDFN",
-    "FileWriteDFN", "GenerateIntervalDFN",
+    "FileWriteDFN", "GenerateIntervalDFN", "SortStreamDFN", 
     # Constants
     "eSerial", "eParallel",
     # Routines
@@ -1324,7 +1324,7 @@ class GenerateIntervalDFN(SingleDataflowNode):
             return False
         return True
 
-class SortStream(SingleDataflowNode):
+class SortStreamDFN(SingleDataflowNode):
     """Batch the incoming input stream until eos seen, sort it, and
     dump it on the output.  Does not handle streams too large to fit
     in memory."""
@@ -1438,7 +1438,7 @@ def sort_test(arg1, argr):
     g = (FileSourceDFN(mbox_file) & SplitDFN(2)
          & ((WindowDFN(155, 305) & StringNewlineBatchDFN()) 
             | (StringNewlineBatchDFN() & WindowDFN(16, 28)))
-         & SerialMergeDFN(2) & SortStream(uniquify=True)
+         & SerialMergeDFN(2) & SortStreamDFN(uniquify=True)
          & ValidateStream(("Line number 11\n",
                            "Line number 12\n", 
                            "Line number 13\n", 
