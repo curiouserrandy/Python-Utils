@@ -1295,8 +1295,8 @@ class FileSourceDFN(SingleDataflowNode):
                 # last file input location was when an exception gets
                 # thrown
                 print ("Exception thrown when processing block [%d, %d)" +
-                       "of file %s" % (file.tell() - self.__buffer_size,
-                                       file.tell(), file.__filename))
+                       "of file %s" % (self.__file.tell() - self.__buffer_size,
+                                       self.__file.tell(), file.__filename))
                 raise
             if num_recs != -1:
                 num_recs -= 1
