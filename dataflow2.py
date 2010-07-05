@@ -278,7 +278,7 @@ __all__ = (
     # Base classes
     "DataflowNode", "SingleDataflowNode", "CompositeDataflowNode",
     # Derived classes
-    "SplitDFN", "FilterDFN", "SinkDFN", "WindowDFN", "BatchDFN",
+    "SplitDFN", "FilterDFN", "SelectDFN", "SinkDFN", "WindowDFN", "BatchDFN",
     "SerialMergeDFN", "FileSourceDFN", "StringNewlineBatchDFN",
     "FileWriteDFN", "GenerateIntervalDFN", "SortStreamDFN", 
     # Constants
@@ -1114,6 +1114,18 @@ class SplitDFN(SingleDataflowNode):
 
     # No need to override execute_ or initialize_
                                     
+class SelectDFN(SingleDataflowNode):
+    """Pass records through, or not, depending on the result of the
+    input function applied ot the record.  True should be returned
+    to pass the record."""
+    def __init__(self, select_func):
+        SingleDataflowNode.__init__(self)
+        self.__select_func = select_func
+
+    def input_(self, input_port, rec):
+        if self.__select_func(rec):
+            self._output(0, rec)
+
 class FilterDFN(SingleDataflowNode):
     """DFN to transform each record through a passed function."""
     def __init__(self, filter_func):
