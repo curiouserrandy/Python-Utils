@@ -701,13 +701,13 @@ class CompositeDataflowNode(DataflowNode):
         # Save the important data about ourselves before consuming the new
         # node, then eat it.  This will produce a valid composite node without
         # any of the links having been executed.
-        oport_offset = len(self.__output_port_descrs)
-        iport_offset = len(self.__input_port_descrs)
+        oport_offset = (0, len(self.__output_port_descrs))
+        iport_offset = (0, len(self.__input_port_descrs))
         self.__addNodeNoLinks(node)
 
-        # Execute the links 
-        intlinks = [(l[0][1] if l[0][0] == 0 else l[0][1] + oport_offset,
-                     l[1][1] if l[1][0] == 0 else l[1][1] + iport_offset)
+        # Execute the links
+        intlinks = [(l[0][1] + oport_offset[l[0][0]],
+                     l[1][1] + iport_offset[l[1][0]])
                     for l in links]
         self.makeInternalLinks(intlinks)
 
@@ -803,7 +803,10 @@ class CompositeDataflowNode(DataflowNode):
         nodes = self.__contained_nodes[:]
         while nodes:
             nodes1 = nodes[:]
-            num_recs = 1 if len(nodes1) > 1 else -1
+            if len(nodes1) > 1:
+                num_recs = 1
+            else:
+                num_recs = -1
             for d in nodes1:
                 res = d.execute_(num_recs)
                 if res is None:
