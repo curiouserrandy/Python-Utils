@@ -1296,7 +1296,7 @@ class FileSourceDFN(SingleDataflowNode):
                 # thrown
                 print ("Exception thrown when processing block [%d, %d)" +
                        "of file %s" % (self.__file.tell() - self.__buffer_size,
-                                       self.__file.tell(), file.__filename))
+                                       self.__file.tell(), self.__filename))
                 raise
             if num_recs != -1:
                 num_recs -= 1
