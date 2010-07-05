@@ -1275,6 +1275,10 @@ class FileSourceDFN(SingleDataflowNode):
     def __init__(self, file, buffer_size=4096):
         SingleDataflowNode.__init__(self, num_input_ports=0)
         self.__file = file
+        try:
+            self.__filename = file.name
+        except:
+            self.__filename = "NONE"
         self.__buffer_size = buffer_size
 
     def execute_(self, num_recs):
@@ -1284,7 +1288,16 @@ class FileSourceDFN(SingleDataflowNode):
                 # We're at EOF, therefore done.
                 self._done()
                 return False
-            self._batchOutput(0, file_block)
+            try:
+                self._batchOutput(0, file_block)
+            except:
+                # A bit of a hack: It's often useful to know where the
+                # last file input location was when an exception gets
+                # thrown
+                print ("Exception thrown when processing block [%d, %d)" +
+                       "of file %s" % (file.tell() - self.__buffer_size,
+                                       file.tell(), file.__filename))
+                raise
             if num_recs != -1:
                 num_recs -= 1
         if self._nodeActive():
