@@ -1260,13 +1260,10 @@ class FileSourceDFN(SingleDataflowNode):
     so it doesn't have to be a performance travesty downstream if
     batchInput_ is overridden).  This allows intelligence responses
     to ignoreInput() (i.e. seeking within the file.)."""
-    def __init__(self, filename, buffer_size=4096):
+    def __init__(self, file, buffer_size=4096):
         SingleDataflowNode.__init__(self, num_input_ports=0)
-        self.__filename = filename
+        self.__file = file
         self.__buffer_size = buffer_size
-
-    def initialize_(self):
-        self.__file = open(self.__filename)
 
     def execute_(self, num_recs):
         while num_recs != 0 and self._nodeActive():
@@ -1468,18 +1465,22 @@ expected_list = (
     )
 
 def complexWindowTest(arg1, argr):
-    g = (FileSourceDFN(mbox_file) & SplitDFN(2)
+    mbox_fileobj = open(mbox_file)
+    g = (FileSourceDFN(mbox_fileobj) & SplitDFN(2)
          & ((WindowDFN(crange[0], crange[1]) & StringNewlineBatchDFN())
             | (StringNewlineBatchDFN() & WindowDFN(lrange[0], lrange[1])))
          & SerialMergeDFN(2) & ValidateStream(expected_list))
     g.run()
 
 def snlbatch_test(arg1, argr):
-    g = (FileSourceDFN(mbox_file) & StringNewlineBatchDFN() & WindowDFN(40, 60) & SinkDFN(printRec))
+    mbox_fileobj = open(mbox_file)
+    g = (FileSourceDFN(mbox_fileobj) & StringNewlineBatchDFN()
+         & WindowDFN(40, 60) & SinkDFN(printRec))
     g.run()
 
 def sort_test(arg1, argr):
-    g = (FileSourceDFN(mbox_file) & SplitDFN(2)
+    mbox_fileobj = open(mbox_file)
+    g = (FileSourceDFN(mbox_fileobj) & SplitDFN(2)
          & ((WindowDFN(155, 305) & StringNewlineBatchDFN()) 
             | (StringNewlineBatchDFN() & WindowDFN(16, 28)))
          & SerialMergeDFN(2) & SortStreamDFN(uniquify=True)
